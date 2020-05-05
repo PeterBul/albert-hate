@@ -30,8 +30,11 @@ import re
 import numpy as np
 import six
 from six.moves import range
-import tensorflow.compat.v1 as tf
+import tensorflow.compat.v1 as tf                                           
 from tensorflow.contrib import layers as contrib_layers
+
+from tensorflow.python.client import device_lib
+    
 
 
 class AlbertConfig(object):
@@ -100,6 +103,7 @@ class AlbertConfig(object):
     self.max_position_embeddings = max_position_embeddings
     self.type_vocab_size = type_vocab_size
     self.initializer_range = initializer_range
+    print(device_lib.list_local_devices())
 
   @classmethod
   def from_dict(cls, json_object):
@@ -190,11 +194,13 @@ class AlbertModel(object):
     if token_type_ids is None:
       token_type_ids = tf.zeros(shape=[batch_size, seq_length], dtype=tf.int32)
 
+    
+    
     with tf.variable_scope(scope, default_name="bert"):
       with tf.variable_scope("embeddings"):
         # Perform embedding lookup on the word ids.
         (self.word_embedding_output,
-         self.output_embedding_table) = embedding_lookup(
+        self.output_embedding_table) = embedding_lookup(
             input_ids=input_ids,
             vocab_size=config.vocab_size,
             embedding_size=config.embedding_size,
@@ -215,7 +221,6 @@ class AlbertModel(object):
             initializer_range=config.initializer_range,
             max_position_embeddings=config.max_position_embeddings,
             dropout_prob=config.hidden_dropout_prob)
-
       with tf.variable_scope("encoder"):
 
         # Run the stacked transformer.

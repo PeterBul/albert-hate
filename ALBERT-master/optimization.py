@@ -24,6 +24,7 @@ import six
 from six.moves import zip
 import tensorflow.compat.v1 as tf
 from tensorflow.contrib import tpu as contrib_tpu
+from adamw import AdamWeightDecayOptimizer
 
 
 def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
@@ -95,10 +96,11 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
     optimizer = contrib_tpu.CrossShardOptimizer(optimizer)
 
   tvars = tf.trainable_variables()
-  grads = tf.gradients(loss, tvars)
+  grads = tf.gradients(loss, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
   # This is how the model was pre-trained.
   (grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
+
 
   train_op = optimizer.apply_gradients(
       list(zip(grads, tvars)), global_step=global_step)
@@ -111,7 +113,7 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
   train_op = tf.group(train_op, [global_step.assign(new_global_step)])
   return train_op
 
-
+'''
 class AdamWeightDecayOptimizer(tf.train.Optimizer):
   """A basic Adam optimizer that includes "correct" L2 weight decay."""
 
@@ -200,3 +202,4 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     if m is not None:
       param_name = m.group(1)
     return param_name
+'''
