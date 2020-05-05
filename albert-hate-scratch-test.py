@@ -5,6 +5,7 @@ from __future__ import print_function
 import sys
 import os
 dirname = os.path.dirname(__file__)
+print(dirname)
 albert_path = os.path.join(dirname, 'ALBERT-master')
 sys.path.append(albert_path)
 
@@ -22,7 +23,7 @@ import six
 import time
 import copy
 
-ITERATIONS = 20935
+ITERATIONS = 10
 BATCH_SIZE = 64
 
 def read_tfrecord(serialized_example, seq_length=512):
@@ -68,6 +69,7 @@ if __name__ == "__main__":
     tf.reset_default_graph()
     albert_config = modeling.AlbertConfig.from_json_file(os.path.join(dirname, 'albert_base/albert_config.json'))
     
+    mirrored_strategy = tf.distribute.MirroredStrategy(devices=["/device:XLA_GPU:0", "/device:XLA_GPU:1"])
     ds = tf.data.TFRecordDataset(os.path.join(dirname, './data/tfrecords/train-olid.tfrecords'))
     ds = ds.map(read_tfrecord)
     ds = ds.repeat()
@@ -104,9 +106,8 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
 
     with tf.Session(config=tf.ConfigProto(
-        allow_soft_placement=True)) as sess:
-        
-        writer = tf.summary.FileWriter(os.path.join(os.path.join(dirname, 'graphs'), str(time.time_ns())), sess.graph)
+        allow_soft_placement=True, log_device_placement=True)) as sess:
+        writer = tf.summary.FileWriter(os.path.join(dirname, './test-graphs_' + str(time.time_ns())), sess.graph)
         sess.run(init_op)
         try:
             for i in range(ITERATIONS):
@@ -114,7 +115,7 @@ if __name__ == "__main__":
                 writer.add_summary(loss_summary_val, i)
                 if i % 100 == 0:
                     print("Loss: " + str(loss_val))
-                    save_path = saver.save(sess, "checkpoints/model.ckpt")
+                    save_path = saver.save(sess, os.path.join(dirname, "checkpoints/model.ckpt"))
                     print("Model saved in path: %s" % save_path)
         except tf.errors.OutOfRangeError:
             pass
