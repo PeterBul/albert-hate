@@ -118,7 +118,7 @@ class DataProcessor(object):
       for line in reader:
         lines.append(line)
       return lines
-
+  
   def process_text(self, text):
     if self.use_spm:
       return tokenization.preprocess_text(text, lower=self.do_lower_case)
@@ -768,7 +768,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
                  labels, num_labels, use_one_hot_embeddings, task_name,
-                 hub_module):
+                 hub_module, regression=False):
   """Creates a classification model."""
   (output_layer, _) = fine_tuning_utils.create_albert(
       albert_config=albert_config,
@@ -778,6 +778,9 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
       segment_ids=segment_ids,
       use_one_hot_embeddings=use_one_hot_embeddings,
       hub_module=hub_module)
+
+  if regression:
+    num_labels = 1
 
   hidden_size = output_layer.shape[-1].value
 
@@ -795,7 +798,23 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
 
     logits = tf.matmul(output_layer, output_weights, transpose_b=True)
     logits = tf.nn.bias_add(logits, output_bias)
-    if task_name != "sts-b":
+
+    # if it is regression mode, we have to manipulate the logits
+    if regression:
+      # logits are OFFENSIVE probability. logits_not is NOT probability: 1 - p(offensive)
+      logits_not = tf.ones_like(logits) - logits
+      # if it is training, we need the logits to calculate the loss, as a regression value, so we keep the expansion in another variable
+      if is_training:
+        class_logits = tf.concat([logits_not, logits], axis=-1)
+
+      # if it is not training, we just use these as the new logits
+      else:
+        logits = tf.concat([logits_not, logits], axis=-1)
+      
+    # The task name should never be sts-b for hate speech, so first part is always true. Go to first branch of if, if regression is false or is training is false.
+    # The first branch will run on evaluation and prediction and always if the model is not regression.
+    # If the model is regression, the regression value has been mapped to logits, so its possible to use argmax to get the predictions.
+    if task_name != "sts-b" and not (regression and is_training):
       probabilities = tf.nn.softmax(logits, axis=-1)
       predictions = tf.argmax(probabilities, axis=-1, output_type=tf.int32)
       log_probs = tf.nn.log_softmax(logits, axis=-1)
@@ -803,11 +822,18 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
 
       per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
     else:
-      probabilities = logits
+      #probabilities = logits
+      probabilities = tf.nn.softmax(class_logits, axis=-1)
       logits = tf.squeeze(logits, [-1])
-      predictions = logits
+      #predictions = logits
+      predictions = tf.argmax(probabilities, axis=-1, output_type=tf.int32)
+      # maybe we have to squeeze labels
       per_example_loss = tf.square(logits - labels)
     loss = tf.reduce_mean(per_example_loss)
+
+    if regression and is_training:
+      logits = class_logits
+      
 
     return (loss, per_example_loss, probabilities, logits, predictions)
 

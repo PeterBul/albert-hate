@@ -5,9 +5,9 @@ from __future__ import print_function
 import sys
 sys.path.append('./ALBERT-master')
 
-import mpi4py as MPI
+import mpi4py as MPI                                                    # pylint: disable=import-error
 import tensorflow.compat.v1 as tf                                       # pylint: disable=import-error
-import tensorflow_hub as hub
+import tensorflow_hub as hub                                            # pylint: disable=import-error
 
 import optimization                                                     # pylint: disable=import-error
 
