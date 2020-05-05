@@ -1,3 +1,7 @@
 /checkpoints
 /data
 /graphs
+/models
+/albert-model*
+/albert_*large*
+/tf-hub
