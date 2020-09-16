@@ -768,7 +768,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
                  labels, num_labels, use_one_hot_embeddings, task_name,
-                 hub_module, regression=False):
+                 hub_module, linear_layers=0, regression=False):
   """Creates a classification model."""
   (output_layer, _) = fine_tuning_utils.create_albert(
       albert_config=albert_config,
@@ -783,6 +783,9 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
     num_labels = 1
 
   hidden_size = output_layer.shape[-1].value
+
+  for _ in range(linear_layers):
+    output_layer = tf.layers.Dense(hidden_size, activation=tf.nn.leaky_rely, kernel_initializer=modeling.create_initializer(albert_config.initializer_range))(output_layer)
 
   output_weights = tf.get_variable(
       "output_weights", [num_labels, hidden_size],
