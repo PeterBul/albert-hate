@@ -785,7 +785,7 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
   hidden_size = output_layer.shape[-1].value
 
   for _ in range(linear_layers):
-    output_layer = tf.layers.Dense(hidden_size, activation=tf.nn.leaky_rely, kernel_initializer=modeling.create_initializer(albert_config.initializer_range))(output_layer)
+    output_layer = tf.layers.Dense(hidden_size, activation=tf.nn.leaky_relu, kernel_initializer=modeling.create_initializer(albert_config.initializer_range))(output_layer)
 
   output_weights = tf.get_variable(
       "output_weights", [num_labels, hidden_size],

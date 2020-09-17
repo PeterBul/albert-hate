@@ -13,7 +13,9 @@ import six
 import time
 import copy
 
-model_pickle_filepath = "model-version.pickle"
+
+
+model_pickle_filepath = "master-model-version.pickle"
 
 if not os.path.exists(model_pickle_filepath):
     model_version = 0
@@ -25,18 +27,20 @@ else:
 with open(model_pickle_filepath, 'wb') as handle:
     pickle.dump(model_version, handle)
 
-
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--model-dir', dest='model_dir', type=str, default='models' + os.sep + 'albert-model', help='The name of the folder to save the model')
+parser.add_argument('--ds', dest='dataset', type=str, default='solid', help='The name of the dataset to be used. For now,  davidson or solid')
 parser.add_argument('--bs', dest='batch_size', type=int, default=32, help='Batch size')
+parser.add_argument('--ll', dest='linear_layers', type=int, default=0, help="Number of linear layers to add on top of ALBERT")
 parser.add_argument('--it', dest='iterations', type=int, default=1000, help='Number of iterations to train for. If epochs is set, this is overridden.')
+parser.add_argument('--ws', dest='warmup_steps', type=int, default=0, help='Number of warmupsteps to be used.')
+
 parser.add_argument('--mod', dest='model_size', type=str, default='base', help='The model size of albert. For now, "base" and "large" is supported.')
-parser.add_argument('--seq-len', dest='sequence_length', type=int, default=512, help='The max sequence length of the model. This requires a dataset that is modeled for this.')
+parser.add_argument('--seq-len', dest='sequence_length', type=int, default=128, help='The max sequence length of the model. This requires a dataset that is modeled for this.')
 parser.add_argument('--epochs', dest='epochs', type=int, default=-1, help='Number of epochs to train. If not set, iterations are used instead.')
 parser.add_argument('--ds-len', dest='dataset_length', type=int, default=-1, help='Length of dataset. Is needed to caluclate iterations if epochs is used.')
-parser.add_argument('--opt', dest='optimizer', type=str, default='adam', help='The optimizer to use. Supported optimizers are adam, adamw and lamb')
-parser.add_argument('--ws', dest='warmup_steps', type=int, default=0, help='Number of warmupsteps to be used.')
+parser.add_argument('--opt', dest='optimizer', type=str, default='adamw', help='The optimizer to use. Supported optimizers are adam, adamw and lamb')
 parser.add_argument('--lr', dest='learning_rate', type=float, default=1e-5, help='Learning rate')
 parser.add_argument('--cp', dest='init_checkpoint', type=str, default=None, help="Checkpoint to train from")
 parser.add_argument('--not-prob', dest='negative_class_prob', default=-1.0, type=float, help='Fraction of dataset containing negative labels')
@@ -44,8 +48,9 @@ parser.add_argument('--reg', dest='regression', default=False, action='store_tru
 parser.add_argument('--test', dest='test', default=False, action='store_true', help='Set flag to test')
 
 
-
 args = parser.parse_args()
+
+
 
 
 BATCH_SIZE = args.batch_size
@@ -76,13 +81,14 @@ if not args.test:
 else:
     MODEL_DIR = args.model_dir
 PATH_DATASET= 'data' + os.sep + 'tfrecords'
-FILE_TRAIN = PATH_DATASET + os.sep + 'olid-2020-full-'+ ("reg-" if args.regression else "") + str(args.sequence_length) + '.tfrecords'
-FILE_DEV = PATH_DATASET + os.sep + 'olid-2019-full-' + str(args.sequence_length) + '.tfrecords'
-FILE_TEST = PATH_DATASET + os.sep + 'test-2020-' + str(args.sequence_length) + '.tfrecords'
+FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(args.sequence_length) + '.tfrecords'
+FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(args.sequence_length) + '.tfrecords'
+FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test' + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
+#FILE_TRAIN = PATH_DATASET + os.sep + 'olid-2020-full-'+ ("reg-" if args.regression else "") + str(args.sequence_length) + '.tfrecords'
+#FILE_DEV = PATH_DATASET + os.sep + 'olid-2019-full-' + str(args.sequence_length) + '.tfrecords'
+#FILE_TEST = PATH_DATASET + os.sep + 'test-2020-' + str(args.sequence_length) + '.tfrecords'
 ALBERT_PRETRAINED_PATH = 'albert_' + args.model_size
 SST_2_WS = 1256
-
-
 
 ALBERT_PATH = './ALBERT-master'
 sys.path.append(ALBERT_PATH)
@@ -91,12 +97,9 @@ import optimization                                                     # pylint
 import modeling                                                         # pylint: disable=import-error
 import classifier_utils                                                 # pylint: disable=import-error
 
-
-
 tf.logging.set_verbosity(tf.logging.INFO)
 
 tf.logging.info('Model directory: ' + MODEL_DIR)
-
 
 tf.logging.info("------------ Arguments --------------")
 for arg in vars(args):
@@ -211,7 +214,7 @@ def model_fn_builder(regression=args.regression):
 
         (loss, per_example_loss, probabilities, logits, predictions) = \
             classifier_utils.create_model(albert_config, is_training, input_ids, input_mask, \
-                segment_ids, label_ids, 2, False, 'hsc', None, regression)
+                segment_ids, label_ids, 3, False, 'hsc', None, args.linear_layers, regression)
         
         
         
@@ -345,6 +348,52 @@ def model_fn_builder(regression=args.regression):
 oversampling_coef = 0.9 # if equal to 0 then oversample_classes() always returns 1
 undersampling_coef = 0.9 # if equal to 0 then undersampling_filter() always returns True
 
+
+def tf_f1_score(y_true, y_pred):
+    """
+    From: https://stackoverflow.com/questions/45287169/tensorflow-precision-recall-f1-multi-label-classification
+    Computes 3 different f1 scores, micro macro
+    weighted.
+    micro: f1 score accross the classes, as 1
+    macro: mean of f1 scores per class
+    weighted: weighted average of f1 scores per class,
+            weighted from the support of each class
+
+
+    Args:
+        y_true (Tensor): labels, with shape (batch, num_classes)
+        y_pred (Tensor): model's predictions, same shape as y_true
+
+    Returns:
+        tuple(Tensor): (micro, macro, weighted)
+                    tuple of the computed f1 scores
+    """
+
+    f1s = [0, 0, 0]
+
+    y_true = tf.cast(y_true, tf.float64)
+    y_pred = tf.cast(y_pred, tf.float64)
+
+    for i, axis in enumerate([None, 0]):
+        TP = tf.count_nonzero(y_pred * y_true, axis=axis)
+        FP = tf.count_nonzero(y_pred * (y_true - 1), axis=axis)
+        FN = tf.count_nonzero((y_pred - 1) * y_true, axis=axis)
+
+        precision = TP / (TP + FP)
+        recall = TP / (TP + FN)
+        f1 = 2 * precision * recall / (precision + recall)
+
+        f1s[i] = tf.reduce_mean(f1)
+
+    weights = tf.reduce_sum(y_true, axis=0)
+    weights /= tf.reduce_sum(weights)
+
+    f1s[2] = tf.reduce_sum(f1 * weights)
+
+    micro, macro, weighted = f1s
+    return micro, macro, weighted
+
+
 def oversample_classes(example):
     """
     Returns the number of copies of given example
@@ -394,7 +443,7 @@ def undersampling_filter(example):
     return acceptance
 
 if __name__ == "__main__":
-    #tf.debugging.set_log_device_placement(True)
+    tf.debugging.set_log_device_placement(True)
     strategy = tf.distribute.MirroredStrategy()
     config = tf.estimator.RunConfig(train_distribute=strategy)
 
