@@ -50,7 +50,7 @@ parser.add_argument('--test', dest='test', default=False, action='store_true', h
 args = parser.parse_args()
 
 
-
+target_names = {'davidson': ['hateful', 'offensive', 'neither'], 'olid': ['NOT', 'OFF'], 'solid': ['NOT', 'OFF']}
 
 BATCH_SIZE = args.batch_size
 
@@ -231,91 +231,18 @@ def model_fn_builder(regression=args.regression):
         # NOT offensive has label 0, OFF (offensive) has label 1. OFF is thus positive label
 
         accuracy = tf.metrics.accuracy(labels=label_ids, predictions=predictions, name='acc_op')
-        prec, prec_op = tf.metrics.precision(label_ids, predictions=predictions, name='precision_op')
-        rec, rec_op = tf.metrics.recall(label_ids, predictions=predictions, name='recall_op')
-        f1 = 2 * (rec * prec)/(rec + prec)
-        f1_op = tf.identity(f1)
-        precision = (prec, prec_op)
-        recall = (rec, rec_op)
-        f1 = (f1, f1_op)
-        
         auc = tf.metrics.auc(label_ids, predictions=predictions, name='auc_op')
         eval_loss = tf.metrics.mean(values=per_example_loss)
 
-        # Own calculations to double check
+        metrics = get_metrics(label_ids, predictions, target_names=target_names[args.dataset])
+        metrics['accuracy'] = accuracy
+        metrics['auc'] = auc
+        metrics['eval_loss'] = eval_loss
 
-        false_pos = tf.metrics.false_positives(labels=label_ids, predictions=predictions, name='false_positives_op')
-        false_neg = tf.metrics.false_negatives(labels=label_ids, predictions=predictions, name='false_negatives_op')
-        true_pos = tf.metrics.true_positives(labels=label_ids, predictions=predictions, name='true_positives_op')
-        true_neg = tf.metrics.true_negatives(labels=label_ids, predictions=predictions, name='true_negatives_op')
+        for k, v in metrics.items():
+            tf.summary.scalar(k, v[1]) 
 
-        fp, _ = false_pos
-        fn, _ = false_neg
-        tp, _ = true_pos
-        tn, _ = true_neg
-
-        # Precision OFF (precision) = tp/(tp + fp)
-        prec_off = tp/(tp + fp)
-        prec_off_op = tf.identity(prec_off)
-        precision_off_metric = (prec_off, prec_off_op)
-
-        # Recall OFF (recall) = tp/(tp + fn)
-        rec_off = tp/(tp + fn)
-        rec_off_op = tf.identity(rec_off)
-        recall_off_metric = (rec_off, rec_off_op)
-
-        # Precision NOT (negative predictive value) = tn/(tn + fn)
-        prec_not = tn/(tn + fn)
-        prec_not_op = tf.identity(prec_not)
-        precision_not_metric = (prec_not, prec_not_op)
-
-        # Recall NOT (True negative rate / specificity) = tn/(tn + fp)
-        rec_not = tn/(tn + fp)
-        rec_not_op = tf.identity(rec_not)
-        recall_not_metric = (rec_not, rec_not_op)
-
-        f1_off = 2 * (rec_off * prec_off)/(rec_off + prec_off)
-        f1_off_op = tf.identity(f1_off)
-        f1_offensive_metric = (f1_off, f1_off_op)
-
-        f1_not = 2 * (rec_not * prec_not)/(rec_not + prec_not)
-        f1_not_op = tf.identity(f1_not)
-        f1_not_metric = (f1_not, f1_not_op)
-
-
-
-
-
-
-        metrics = {
-            'eval_accuracy': accuracy, 
-            'eval_precision': precision, 
-            'eval_recall': recall,
-            'eval_precision_offensive': precision_off_metric,
-            'eval_recall_offensive': recall_off_metric,
-            'eval_precision_not': precision_not_metric,
-            'eval_recall_not': recall_not_metric, 
-            'eval_auc': auc, 
-            'eval_loss': eval_loss, 
-            'f1': f1,
-            'f1_offensive': f1_offensive_metric,
-            'f1_not': f1_not_metric, 
-            'true_positives': true_pos,
-            'true_negatives': true_neg,
-            'false_positives': false_pos,
-            'false_negatives': false_neg
-            }
-        tf.summary.scalar('accuracy', accuracy[1])
-        tf.summary.scalar('precision', precision[1])
-        tf.summary.scalar('recall', recall[1])
-        tf.summary.scalar('auc', auc[1])
-        tf.summary.scalar('mean_per_example_loss', eval_loss[1])
         tf.summary.scalar('loss', loss)
-        tf.summary.scalar('true_positives', true_pos[1])
-        tf.summary.scalar('true_negatives', true_neg[1])
-        tf.summary.scalar('false_positives', false_pos[1])
-        tf.summary.scalar('false_negatives', false_neg[1])
-        tf.summary.scalar('f1', f1[1])
 
         if mode == tf.estimator.ModeKeys.EVAL:
             return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
@@ -343,97 +270,61 @@ def model_fn_builder(regression=args.regression):
     return my_model_fn
 
 
-# sampling parameters use it wisely 
-oversampling_coef = 0.9 # if equal to 0 then oversample_classes() always returns 1
-undersampling_coef = 0.9 # if equal to 0 then undersampling_filter() always returns True
+def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']):
 
-def get_metrics(y_true, y_pred):
+    assert y_true.shape[-1] == len(target_names), "Number of target names, {}, must match the number of classes: {}".format(len(target_names), y_true.shape[-1])
 
-    y_true = tf.cast(y_true, tf.float64)
-    y_pred = tf.cast(y_pred, tf.float64)
+    target_names = [tn.lower() for tn in target_names]
+    
+    metrics = {}
 
-    TP = tf.count_nonzero(y_pred * y_true, axis=None, dtype=tf.dtypes.float64)
-    FP = tf.count_nonzero(y_pred * (y_true - 1), axis=None, dtype=tf.dtypes.float64)
-    FN = tf.count_nonzero((y_pred - 1) * y_true, axis=None, dtype=tf.dtypes.float64)
-
-    metrics = {
-            'eval_accuracy': accuracy, 
-            
-            'hateful_precision': precision,
-            'hateful_recall': precision,
-            'hateful_f1': precision,
-
-            'offensive_precision': precision,
-            'offensive_recall': precision,
-            'offensive_f1': precision,
-
-            'neither_precision': precision,
-            'neither_recall': precision,
-            'neither_f1': precision,
-
-            'micro_avg_precision': precision,
-            'micro_avg_recall': precision,
-            'micro_avg_f1': precision,
-
-            'macro_avg_precision': precision,
-            'macro_avg_recall': precision,
-            'macro_avg_f1': precision,
-
-            'weighted_avg_precision': precision,
-            'weighted_avg_recall': precision,
-            'weighted_avg_f1': precision,
-
-            'eval_loss': eval_loss,
-            }
-
-def f1_score(y_true, y_pred):
-    """Computes 3 different f1 scores, micro macro
-    weighted.
-    micro: f1 score accross the classes, as 1
-    macro: mean of f1 scores per class
-    weighted: weighted average of f1 scores per class,
-            weighted from the support of each class
-
-
-    Args:
-        y_true (Tensor): labels, with shape (batch, num_classes)
-        y_pred (Tensor): model's predictions, same shape as y_true
-
-    Returns:
-        tuple(Tensor): (micro, macro, weighted)
-                    tuple of the computed f1 scores
-    """
-
+    precisions = [0,0,0]
+    recalls = [0,0,0]
     f1s = [0, 0, 0]
-    precisions = [0, 0, 0]
-    recalls = [0, 0, 0]
 
     y_true = tf.cast(y_true, tf.float64)
     y_pred = tf.cast(y_pred, tf.float64)
-
+    
+    support = tf.count_nonzero(y_true, axis=0)
+    # axis=None -> micro, axis=1 -> macro
     for i, axis in enumerate([None, 0]):
         TP = tf.count_nonzero(y_pred * y_true, axis=axis, dtype=tf.dtypes.float64)
         FP = tf.count_nonzero(y_pred * (y_true - 1), axis=axis, dtype=tf.dtypes.float64)
         FN = tf.count_nonzero((y_pred - 1) * y_true, axis=axis, dtype=tf.dtypes.float64)
 
         precision = tf.math.divide_no_nan(TP, (TP + FP))
-
         recall = tf.math.divide_no_nan(TP, (TP + FN))
-
         f1 = tf.math.divide_no_nan(2 * precision * recall, (precision + recall))
 
-        precisions[i] = tf.reduce
+        precisions[i] = tf.reduce_mean(precision)
+        recalls[i] = tf.reduce_mean(recall)
         f1s[i] = tf.reduce_mean(f1)
-
 
     weights = tf.reduce_sum(y_true, axis=0)
     weights /= tf.reduce_sum(weights)
-
+    
+    precisions[2] = tf.reduce_sum(precision * weights)
+    recalls[2] = tf.reduce_sum(recall * weights)
     f1s[2] = tf.reduce_sum(f1 * weights)
 
-    micro, macro, weighted = f1s
-    return micro, macro, weighted
+    tot_supp = tf.reduce_sum(support)
+    supports = [tot_supp for i in range(3)]
 
+    for i, metric in enumerate(['precision', 'recall', 'f1', 'support']):
+        for j, sublist in enumerate([target_names, ['micro-avg', 'macro-avg', 'weighted-avg']]):
+            for k, label in enumerate(sublist):
+                key = '{}_{}'.format(metric, label)
+                lookup = [[precision, precisions], [recall, recalls], [f1, f1s], [support, supports]]
+                metrics[key] = lookup[i][j][k]
+    
+    metrics = {k: (v, tf.identity(v)) for k, v in metrics}
+ 
+    return metrics
+
+
+# sampling parameters use it wisely 
+oversampling_coef = 0.9 # if equal to 0 then oversample_classes() always returns 1
+undersampling_coef = 0.9 # if equal to 0 then undersampling_filter() always returns True
 
 def oversample_classes(example):
     """
