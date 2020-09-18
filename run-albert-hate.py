@@ -14,7 +14,6 @@ import time
 import copy
 
 
-
 model_pickle_filepath = "master-model-version.pickle"
 
 if not os.path.exists(model_pickle_filepath):
@@ -348,11 +347,47 @@ def model_fn_builder(regression=args.regression):
 oversampling_coef = 0.9 # if equal to 0 then oversample_classes() always returns 1
 undersampling_coef = 0.9 # if equal to 0 then undersampling_filter() always returns True
 
+def get_metrics(y_true, y_pred):
 
-def tf_f1_score(y_true, y_pred):
-    """
-    From: https://stackoverflow.com/questions/45287169/tensorflow-precision-recall-f1-multi-label-classification
-    Computes 3 different f1 scores, micro macro
+    y_true = tf.cast(y_true, tf.float64)
+    y_pred = tf.cast(y_pred, tf.float64)
+
+    TP = tf.count_nonzero(y_pred * y_true, axis=None, dtype=tf.dtypes.float64)
+    FP = tf.count_nonzero(y_pred * (y_true - 1), axis=None, dtype=tf.dtypes.float64)
+    FN = tf.count_nonzero((y_pred - 1) * y_true, axis=None, dtype=tf.dtypes.float64)
+
+    metrics = {
+            'eval_accuracy': accuracy, 
+            
+            'hateful_precision': precision,
+            'hateful_recall': precision,
+            'hateful_f1': precision,
+
+            'offensive_precision': precision,
+            'offensive_recall': precision,
+            'offensive_f1': precision,
+
+            'neither_precision': precision,
+            'neither_recall': precision,
+            'neither_f1': precision,
+
+            'micro_avg_precision': precision,
+            'micro_avg_recall': precision,
+            'micro_avg_f1': precision,
+
+            'macro_avg_precision': precision,
+            'macro_avg_recall': precision,
+            'macro_avg_f1': precision,
+
+            'weighted_avg_precision': precision,
+            'weighted_avg_recall': precision,
+            'weighted_avg_f1': precision,
+
+            'eval_loss': eval_loss,
+            }
+
+def f1_score(y_true, y_pred):
+    """Computes 3 different f1 scores, micro macro
     weighted.
     micro: f1 score accross the classes, as 1
     macro: mean of f1 scores per class
@@ -370,20 +405,26 @@ def tf_f1_score(y_true, y_pred):
     """
 
     f1s = [0, 0, 0]
+    precisions = [0, 0, 0]
+    recalls = [0, 0, 0]
 
     y_true = tf.cast(y_true, tf.float64)
     y_pred = tf.cast(y_pred, tf.float64)
 
     for i, axis in enumerate([None, 0]):
-        TP = tf.count_nonzero(y_pred * y_true, axis=axis)
-        FP = tf.count_nonzero(y_pred * (y_true - 1), axis=axis)
-        FN = tf.count_nonzero((y_pred - 1) * y_true, axis=axis)
+        TP = tf.count_nonzero(y_pred * y_true, axis=axis, dtype=tf.dtypes.float64)
+        FP = tf.count_nonzero(y_pred * (y_true - 1), axis=axis, dtype=tf.dtypes.float64)
+        FN = tf.count_nonzero((y_pred - 1) * y_true, axis=axis, dtype=tf.dtypes.float64)
 
-        precision = TP / (TP + FP)
-        recall = TP / (TP + FN)
-        f1 = 2 * precision * recall / (precision + recall)
+        precision = tf.math.divide_no_nan(TP, (TP + FP))
 
+        recall = tf.math.divide_no_nan(TP, (TP + FN))
+
+        f1 = tf.math.divide_no_nan(2 * precision * recall, (precision + recall))
+
+        precisions[i] = tf.reduce
         f1s[i] = tf.reduce_mean(f1)
+
 
     weights = tf.reduce_sum(y_true, axis=0)
     weights /= tf.reduce_sum(weights)
