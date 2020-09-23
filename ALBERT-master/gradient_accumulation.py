@@ -67,7 +67,7 @@ def use_gradient_accumulation(grads, tvars, optimizer, gradient_accmulation_mult
     return train_op
 
 
-class GradientAccumulationHook(session_run_hook.SessionRunHook):
+class GradientAccumulationHook(tf.train.SessionRunHook):
     """
     Puts a certain tf.Variable to 1 once every certain steps.
     """
