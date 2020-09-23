@@ -271,7 +271,7 @@ def model_fn_builder(regression=args.regression):
             train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
             accumulation_hook = None
         elif args.optimizer == 'adamw' or args.optimizer == 'lamb':
-            do_update = tf.get_variable('do_update', shape=(), dtype=tf.int32, initializer=tf.constant_initializer())
+            do_update = tf.get_variable('do_update', shape=(), dtype=tf.float32, initializer=tf.constant_initializer())
             accumulation_hook = GradientAccumulationHook(args.accumulation_steps, do_update)
             train_op = optimization.create_optimizer(
             loss, args.learning_rate, ITERATIONS, args.warmup_steps,
@@ -286,9 +286,8 @@ def model_fn_builder(regression=args.regression):
                     tf.summary.histogram(var.op.name + '/gradients', grad)
         for var in tf.trainable_variables():
             tf.summary.histogram(var.name, var)
-        logging_hook = tf.train.LoggingTensorHook({"accuracy": "acc"},                                                          
-                                    every_n_iter=args.accumulation_steps)
-        return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op, training_hooks=[logging_hook, accumulation_hook])
+        #logging_hook = tf.train.LoggingTensorHook({"accuracy": "acc"}, every_n_iter=args.accumulation_steps)
+        return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op, training_hooks=[accumulation_hook])
     return my_model_fn
 
 
@@ -420,7 +419,7 @@ if __name__ == "__main__":
             classifier.evaluate(input_fn=lambda:eval_input_fn(2, test=True), steps=None)
         else:
             early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="loss", max_steps_without_decrease=10000, min_steps=100)
-            train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(BATCH_SIZE), max_steps=ITERATIONS, hooks=[early_stopping])
+            train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(args.mini_batch_size), max_steps=ITERATIONS, hooks=[early_stopping])
             eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(BATCH_SIZE), steps=None)
 
             tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)

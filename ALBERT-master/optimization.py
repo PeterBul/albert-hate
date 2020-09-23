@@ -25,12 +25,15 @@ from six.moves import zip
 import tensorflow.compat.v1 as tf
 from tensorflow.contrib import tpu as contrib_tpu
 from adamw import AdamWeightDecayOptimizer
+from gradient_accumulation import use_gradient_accumulation
 
 
 def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
-                     optimizer="adamw", poly_power=1.0, start_warmup_step=0):
+                     optimizer="adamw", poly_power=1.0, start_warmup_step=0, gradient_accumulation_multiplier=1, do_update=None):
   """Creates an optimizer training op."""
   global_step = tf.train.get_or_create_global_step()
+
+  use_accumulation = gradient_accumulation_multiplier > 1 and do_update is not None
 
   learning_rate = tf.constant(value=init_lr, shape=[], dtype=tf.float32)
 
@@ -101,16 +104,20 @@ def create_optimizer(loss, init_lr, num_train_steps, num_warmup_steps, use_tpu,
   # This is how the model was pre-trained.
   (grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
 
+  if use_accumulation:
+    train_op = use_gradient_accumulation(grads, tvars, optimizer, gradient_accumulation_multiplier, global_step, do_update)
+  else:
+    train_op = optimizer.apply_gradients(
+        list(zip(grads, tvars)), global_step=global_step)
 
-  train_op = optimizer.apply_gradients(
-      list(zip(grads, tvars)), global_step=global_step)
+      # Normally the global step update is done inside of `apply_gradients`.
+    # However, neither `AdamWeightDecayOptimizer` nor `LAMBOptimizer` do this.
+    # But if you use a different optimizer, you should probably take this line
+    # out.
+    new_global_step = global_step + 1
+    train_op = tf.group(train_op, [global_step.assign(new_global_step)])
 
-  # Normally the global step update is done inside of `apply_gradients`.
-  # However, neither `AdamWeightDecayOptimizer` nor `LAMBOptimizer` do this.
-  # But if you use a different optimizer, you should probably take this line
-  # out.
-  new_global_step = global_step + 1
-  train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+  
   return train_op
 
 '''

@@ -14,7 +14,7 @@ def use_gradient_accumulation(grads, tvars, optimizer, gradient_accmulation_mult
                                     initializer=tf.zeros_initializer,
                                     trainable=False,
                                     dtype=tf.float32,
-                                    collections=[tf.GraphKeys.LOCAL_VARIABLES]) for i, tv in enumerate(tvars)]
+                                    collections=[tf.GraphKeys.LOCAL_VARIABLES], aggregation=tf.VariableAggregation.MEAN) for i, tv in enumerate(tvars)]
     sum_ops = []
     unused_variable_in_batch = []
 
@@ -42,7 +42,8 @@ def use_gradient_accumulation(grads, tvars, optimizer, gradient_accmulation_mult
 
     train_op = tf.cond(tf.math.equal(global_step % gradient_accmulation_multiplier, 0),
                     lambda: apply_accumulated_gradients(sum_gradient),
-                    lambda: optimizer.apply_gradients(zip([None for _ in grads], tvars), global_step=global_step))
+                    tf.no_op)
+                    #lambda: optimizer.apply_gradients(zip([None for _ in grads], tvars), global_step=global_step))
 
     # reset accumulation when necessary
     def reset():
@@ -71,6 +72,7 @@ class GradientAccumulationHook(tf.train.SessionRunHook):
     """
     Puts a certain tf.Variable to 1 once every certain steps.
     """
+
 
     def __init__(self, frequency, variable):
         self._step = 0
