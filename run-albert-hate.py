@@ -45,10 +45,24 @@ parser.add_argument('--cp', dest='init_checkpoint', type=str, default=None, help
 parser.add_argument('--not-prob', dest='negative_class_prob', default=-1.0, type=float, help='Fraction of dataset containing negative labels')
 parser.add_argument('--reg', dest='regression', default=False, action='store_true', help='True if using regression data for training')
 parser.add_argument('--test', dest='test', default=False, action='store_true', help='Set flag to test')
+parser.add_argument('--debug', dest='debug', default=False, action='store_true', help='Set flag to debug')
+parser.add_argument('--acc-steps', dest='accumulation_steps', type=int, default=1, help='Set number of steps to accumulate for before doing update to parameters')
+
 
 
 args = parser.parse_args()
 
+def set_batch_size(args):
+    if args.accumulation_steps <= 1:
+        return args
+    assert args.batch_size % args.accumulation_steps == 0, "If gradient accumulation is to be used, batch size has to be a multiple of accumulation steps"
+
+    args.__dict__['mini_batch_size'] = int(args.batch_size / args.accumulation_steps) 
+
+    return args
+
+
+args = set_batch_size(args)
 
 target_names = {'davidson': ['hateful', 'offensive', 'neither'], 'olid': ['NOT', 'OFF'], 'solid': ['NOT', 'OFF']}
 
@@ -57,6 +71,8 @@ BATCH_SIZE = args.batch_size
 using_resampling = args.negative_class_prob != -1
 
 using_epochs = args.epochs != -1 and args.dataset_length != -1
+
+ctrl_dependencies = []
 
 assert args.epochs == -1 or using_epochs , "If epochs argument is set, epochs are used. Make sure to set both epochs and ds-length if using epochs"
 
@@ -95,6 +111,7 @@ sys.path.append(ALBERT_PATH)
 import optimization                                                     # pylint: disable=import-error
 import modeling                                                         # pylint: disable=import-error
 import classifier_utils                                                 # pylint: disable=import-error
+from gradient_accumulation import GradientAccumulationHook
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -231,12 +248,12 @@ def model_fn_builder(regression=args.regression):
         # NOT offensive has label 0, OFF (offensive) has label 1. OFF is thus positive label
 
         accuracy = tf.metrics.accuracy(labels=label_ids, predictions=predictions, name='acc_op')
-        auc = tf.metrics.auc(label_ids, predictions=predictions, name='auc_op')
+        #auc = tf.metrics.auc(label_ids, predictions=predictions, name='auc_op')
         eval_loss = tf.metrics.mean(values=per_example_loss)
 
         metrics = get_metrics(label_ids, predictions, target_names=target_names[args.dataset])
         metrics['accuracy'] = accuracy
-        metrics['auc'] = auc
+        #metrics['auc'] = auc
         metrics['eval_loss'] = eval_loss
 
         for k, v in metrics.items():
@@ -252,10 +269,13 @@ def model_fn_builder(regression=args.regression):
         if args.optimizer == 'adam':
             optimizer = tf.train.AdamOptimizer(args.learning_rate)
             train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
+            accumulation_hook = None
         elif args.optimizer == 'adamw' or args.optimizer == 'lamb':
+            do_update = tf.get_variable('do_update', shape=(), dtype=tf.int32, initializer=tf.constant_initializer())
+            accumulation_hook = GradientAccumulationHook(args.accumulation_steps, do_update)
             train_op = optimization.create_optimizer(
             loss, args.learning_rate, ITERATIONS, args.warmup_steps,
-            False, args.optimizer)
+            False, args.optimizer, do_update=do_update, gradient_accumulation_multiplier=args.accumulation_steps)
         else:
             raise ValueError('Optimizer has to be "adam", "adamw" or "lamb"')
         
@@ -266,13 +286,23 @@ def model_fn_builder(regression=args.regression):
                     tf.summary.histogram(var.op.name + '/gradients', grad)
         for var in tf.trainable_variables():
             tf.summary.histogram(var.name, var)
-        return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+        logging_hook = tf.train.LoggingTensorHook({"accuracy": "acc"},                                                          
+                                    every_n_iter=args.accumulation_steps)
+        return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op, training_hooks=[logging_hook, accumulation_hook])
     return my_model_fn
 
 
 def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']):
 
-    assert y_true.shape[-1] == len(target_names), "Number of target names, {}, must match the number of classes: {}".format(len(target_names), y_true.shape[-1])
+    len_tn = len(target_names)
+    nr_classes = tf.shape(y_true)[-1]
+    y_true = tf.one_hot(y_true, depth=len_tn, dtype=tf.float32)
+    y_pred = tf.one_hot(y_pred, depth=len_tn, dtype=tf.float32)
+    
+    assert_op = tf.debugging.assert_equal(nr_classes, len_tn, message=tf.strings.format("Number of classes, {}, must equal the number of target names, {}.", inputs=(nr_classes, len_tn)))
+
+
+    ctrl_dependencies.append(assert_op)
 
     target_names = [tn.lower() for tn in target_names]
     
@@ -292,9 +322,11 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
         FP = tf.count_nonzero(y_pred * (y_true - 1), axis=axis, dtype=tf.dtypes.float64)
         FN = tf.count_nonzero((y_pred - 1) * y_true, axis=axis, dtype=tf.dtypes.float64)
 
+
         precision = tf.math.divide_no_nan(TP, (TP + FP))
         recall = tf.math.divide_no_nan(TP, (TP + FN))
         f1 = tf.math.divide_no_nan(2 * precision * recall, (precision + recall))
+
 
         precisions[i] = tf.reduce_mean(precision)
         recalls[i] = tf.reduce_mean(recall)
@@ -317,7 +349,7 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
                 lookup = [[precision, precisions], [recall, recalls], [f1, f1s], [support, supports]]
                 metrics[key] = lookup[i][j][k]
     
-    metrics = {k: (v, tf.identity(v)) for k, v in metrics}
+    metrics = {k: (v, tf.identity(v)) for k, v in metrics.items()}
  
     return metrics
 
@@ -375,22 +407,23 @@ def undersampling_filter(example):
     return acceptance
 
 if __name__ == "__main__":
-    tf.debugging.set_log_device_placement(True)
-    strategy = tf.distribute.MirroredStrategy()
-    config = tf.estimator.RunConfig(train_distribute=strategy)
+    with tf.control_dependencies(ctrl_dependencies):
+        tf.debugging.set_log_device_placement(True)
+        strategy = tf.distribute.MirroredStrategy()
+        config = tf.estimator.RunConfig(train_distribute=strategy)
 
-    classifier = tf.estimator.Estimator(
-        model_fn=model_fn_builder(),
-        model_dir=MODEL_DIR,
-        config=config
-        )
+        classifier = tf.estimator.Estimator(
+            model_fn=model_fn_builder(),
+            model_dir=MODEL_DIR,
+            config=config
+            )
 
-    if args.test:
-        classifier.evaluate(input_fn=lambda:eval_input_fn(2, test=True), steps=None)
-    else:
-        early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="loss", max_steps_without_decrease=10000, min_steps=100)
-        train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(BATCH_SIZE), max_steps=ITERATIONS, hooks=[early_stopping])
-        eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(BATCH_SIZE), steps=None)
+        if args.test:
+            classifier.evaluate(input_fn=lambda:eval_input_fn(2, test=True), steps=None)
+        else:
+            early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="loss", max_steps_without_decrease=10000, min_steps=100)
+            train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(BATCH_SIZE), max_steps=ITERATIONS, hooks=[early_stopping])
+            eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(BATCH_SIZE), steps=None)
 
-        tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
+            tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
     
