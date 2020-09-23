@@ -322,11 +322,9 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
         FP = tf.count_nonzero(y_pred * (y_true - 1), axis=axis, dtype=tf.dtypes.float64)
         FN = tf.count_nonzero((y_pred - 1) * y_true, axis=axis, dtype=tf.dtypes.float64)
 
-
         precision = tf.math.divide_no_nan(TP, (TP + FP))
         recall = tf.math.divide_no_nan(TP, (TP + FN))
         f1 = tf.math.divide_no_nan(2 * precision * recall, (precision + recall))
-
 
         precisions[i] = tf.reduce_mean(precision)
         recalls[i] = tf.reduce_mean(recall)
