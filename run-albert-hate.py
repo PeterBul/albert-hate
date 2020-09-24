@@ -313,6 +313,7 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
 
     y_true = tf.cast(y_true, tf.float64)
     y_pred = tf.cast(y_pred, tf.float64)
+
     
     support = tf.count_nonzero(y_true, axis=0)
     # axis=None -> micro, axis=1 -> macro
@@ -325,19 +326,40 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
         recall = tf.math.divide_no_nan(TP, (TP + FN))
         f1 = tf.math.divide_no_nan(2 * precision * recall, (precision + recall))
 
-        precisions[i] = tf.reduce_mean(precision)
-        recalls[i] = tf.reduce_mean(recall)
-        f1s[i] = tf.reduce_mean(f1)
+        print(precision)
+
+        precisions[i] = tf.metrics.mean(precision)
+        recalls[i] = tf.metrics.mean(recall)
+        f1s[i] = tf.metrics.mean(f1)
 
     weights = tf.reduce_sum(y_true, axis=0)
     weights /= tf.reduce_sum(weights)
     
-    precisions[2] = tf.reduce_sum(precision * weights)
-    recalls[2] = tf.reduce_sum(recall * weights)
-    f1s[2] = tf.reduce_sum(f1 * weights)
+    precisions[2] = tf.metrics.mean(tf.reduce_sum(precision * weights))
+    recalls[2] = tf.metrics.mean(tf.reduce_sum(recall * weights))
+    f1s[2] = tf.metrics.mean(tf.reduce_sum(f1 * weights))
+
+
 
     tot_supp = tf.reduce_sum(support)
-    supports = [tot_supp for i in range(3)]
+    supports = tf.metrics.mean(tot_supp)
+    supports = [supports for i in range(3)]
+
+    precision = [tf.metrics.mean(precision[i]) for i in range(3)]
+    recall = [tf.metrics.mean(recall[i]) for i in range(3)]
+    f1 = [tf.metrics.mean(f1[i]) for i in range(3)]
+    support = [tf.metrics.mean(support[i]) for i in range(3)]
+    """
+    metrics = {
+      'precision_micro-avg': precisions[0],
+      'precision_macro-avg': precisions[1],
+      'recall_micro-avg': recalls[0],
+      'recall_macro-avg': recalls[1],
+      'f1_micro-avg': f1s[0],
+      'f1_macro-avg': f1s[1],
+      'support': support,
+    }
+    """
 
     for i, metric in enumerate(['precision', 'recall', 'f1', 'support']):
         for j, sublist in enumerate([target_names, ['micro-avg', 'macro-avg', 'weighted-avg']]):
@@ -346,9 +368,13 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
                 lookup = [[precision, precisions], [recall, recalls], [f1, f1s], [support, supports]]
                 metrics[key] = lookup[i][j][k]
     
-    metrics = {k: (v, tf.identity(v)) for k, v in metrics.items()}
+    #metrics = {k: (v, tf.identity(v)) for k, v in metrics.items()}
+
+    #metrics = {k: v for k, v in metrics.items() if k.split('_')[-1] in {'micro-avg', 'macro-avg'}}
  
     return metrics
+
+
 
 
 # sampling parameters use it wisely 
