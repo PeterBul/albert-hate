@@ -293,27 +293,18 @@ def model_fn_builder(regression=args.regression):
 
 def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']):
 
-    len_tn = len(target_names)
-    nr_classes = tf.shape(y_true)[-1]
-    y_true = tf.one_hot(y_true, depth=len_tn, dtype=tf.float32)
-    y_pred = tf.one_hot(y_pred, depth=len_tn, dtype=tf.float32)
-    
-    assert_op = tf.debugging.assert_equal(nr_classes, len_tn, message=tf.strings.format("Number of classes, {}, must equal the number of target names, {}.", inputs=(nr_classes, len_tn)))
-
-
-    ctrl_dependencies.append(assert_op)
+    assert y_true.shape[-1] == len(target_names), "Number of target names, {}, must match the number of classes: {}".format(len(target_names), y_true.shape[-1])
 
     target_names = [tn.lower() for tn in target_names]
     
     metrics = {}
-
-    precisions = [0,0,0]
-    recalls = [0,0,0]
     f1s = [0, 0, 0]
 
     y_true = tf.cast(y_true, tf.float64)
     y_pred = tf.cast(y_pred, tf.float64)
 
+    precisions = [0,0,0]
+    recalls = [0,0,0]
     
     support = tf.count_nonzero(y_true, axis=0)
     # axis=None -> micro, axis=1 -> macro
@@ -326,8 +317,6 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
         recall = tf.math.divide_no_nan(TP, (TP + FN))
         f1 = tf.math.divide_no_nan(2 * precision * recall, (precision + recall))
 
-        print(precision)
-
         precisions[i] = tf.metrics.mean(precision)
         recalls[i] = tf.metrics.mean(recall)
         f1s[i] = tf.metrics.mean(f1)
@@ -339,27 +328,18 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
     recalls[2] = tf.metrics.mean(tf.reduce_sum(recall * weights))
     f1s[2] = tf.metrics.mean(tf.reduce_sum(f1 * weights))
 
-
-
     tot_supp = tf.reduce_sum(support)
     supports = tf.metrics.mean(tot_supp)
     supports = [supports for i in range(3)]
+    supports = tf.cast(supports, dtype=tf.int64)
 
     precision = [tf.metrics.mean(precision[i]) for i in range(3)]
     recall = [tf.metrics.mean(recall[i]) for i in range(3)]
     f1 = [tf.metrics.mean(f1[i]) for i in range(3)]
     support = [tf.metrics.mean(support[i]) for i in range(3)]
-    """
-    metrics = {
-      'precision_micro-avg': precisions[0],
-      'precision_macro-avg': precisions[1],
-      'recall_micro-avg': recalls[0],
-      'recall_macro-avg': recalls[1],
-      'f1_micro-avg': f1s[0],
-      'f1_macro-avg': f1s[1],
-      'support': support,
-    }
-    """
+    support = tf.cast(support, dtype=tf.int64)
+
+    precision_dim = tf.shape(precision)[-1]
 
     for i, metric in enumerate(['precision', 'recall', 'f1', 'support']):
         for j, sublist in enumerate([target_names, ['micro-avg', 'macro-avg', 'weighted-avg']]):
@@ -368,10 +348,6 @@ def get_metrics(y_true, y_pred, target_names=['hateful', 'offensive', 'neither']
                 lookup = [[precision, precisions], [recall, recalls], [f1, f1s], [support, supports]]
                 metrics[key] = lookup[i][j][k]
     
-    #metrics = {k: (v, tf.identity(v)) for k, v in metrics.items()}
-
-    #metrics = {k: v for k, v in metrics.items() if k.split('_')[-1] in {'micro-avg', 'macro-avg'}}
- 
     return metrics
 
 
