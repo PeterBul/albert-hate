@@ -24,9 +24,14 @@ import six
 import tensorflow.compat.v1 as tf
 
 # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import linalg_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.training import optimizer
+from tensorflow.python.ops import state_ops
+from tensorflow.python.ops import resource_variable_ops
 # pylint: enable=g-direct-tensorflow-import
 
 
@@ -63,65 +68,142 @@ class LAMBOptimizer(tf.train.Optimizer):
       self.exclude_from_layer_adaptation = exclude_from_layer_adaptation
     else:
       self.exclude_from_layer_adaptation = exclude_from_weight_decay
+  
+  
 
-  def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    """See base class."""
-    assignments = []
-    for (grad, param) in grads_and_vars:
-      if grad is None or param is None:
-        continue
+  def _create_slots(self, var_list):
+    for v in var_list:
+        self._zeros_slot(v, 'm', self._name)
+    for v in var_list:
+        self._zeros_slot(v, 'v', self._name)
 
-      param_name = self._get_variable_name(param.name)
+  
+  def _prepare(self):
+    self.learning_rate_t = ops.convert_to_tensor(
+        self.learning_rate, name='learning_rate')
+    self.weight_decay_rate_t = ops.convert_to_tensor(
+        self.weight_decay_rate, name='weight_decay_rate')
+    self.beta_1_t = ops.convert_to_tensor(self.beta_1, name='beta_1')
+    self.beta_2_t = ops.convert_to_tensor(self.beta_2, name='beta_2')
+    self.epsilon_t = ops.convert_to_tensor(self.epsilon, name='epsilon')
+  
+    
+  def _apply_dense(self, grad, var):
+    return self._apply_lamb(grad, var)
 
-      m = tf.get_variable(
-          name=six.ensure_str(param_name) + "/adam_m",
-          shape=param.shape.as_list(),
-          dtype=tf.float32,
-          trainable=False,
-          initializer=tf.zeros_initializer())
-      v = tf.get_variable(
-          name=six.ensure_str(param_name) + "/adam_v",
-          shape=param.shape.as_list(),
-          dtype=tf.float32,
-          trainable=False,
-          initializer=tf.zeros_initializer())
+  def _resource_apply_dense(self, grad, var):
+    return self._apply_lamb(grad, var)
 
-      # Standard Adam update.
-      next_m = (
-          tf.multiply(self.beta_1, m) + tf.multiply(1.0 - self.beta_1, grad))
-      next_v = (
-          tf.multiply(self.beta_2, v) + tf.multiply(1.0 - self.beta_2,
-                                                    tf.square(grad)))
 
-      update = next_m / (tf.sqrt(next_v) + self.epsilon)
+  def _apply_lamb(self, grad, var):
+    var_name = self._get_variable_name(var.name)
+    learning_rate_t = math_ops.cast(
+      self.learning_rate_t, var.dtype.base_dtype)
+    beta_1_t = math_ops.cast(self.beta_1_t, var.dtype.base_dtype)
+    beta_2_t = math_ops.cast(self.beta_2_t, var.dtype.base_dtype)
+    epsilon_t = math_ops.cast(self.epsilon_t, var.dtype.base_dtype)
+    weight_decay_rate_t = math_ops.cast(
+      self.weight_decay_rate_t, var.dtype.base_dtype)
 
-      # Just adding the square of the weights to the loss function is *not*
-      # the correct way of using L2 regularization/weight decay with Adam,
-      # since that will interact with the m and v parameters in strange ways.
-      #
-      # Instead we want ot decay the weights in a manner that doesn't interact
-      # with the m/v parameters. This is equivalent to adding the square
-      # of the weights to the loss with plain (non-momentum) SGD.
-      if self._do_use_weight_decay(param_name):
-        update += self.weight_decay_rate * param
+    m = self.get_slot(var, 'm')
+    v = self.get_slot(var, 'v')
 
-      ratio = 1.0
-      if self._do_layer_adaptation(param_name):
-        w_norm = linalg_ops.norm(param, ord=2)
-        g_norm = linalg_ops.norm(update, ord=2)
-        ratio = array_ops.where(math_ops.greater(w_norm, 0), array_ops.where(
-            math_ops.greater(g_norm, 0), (w_norm / g_norm), 1.0), 1.0)
+    # Standard Adam update.
+    next_m = (
+      tf.multiply(beta_1_t, m) +
+      tf.multiply(1.0 - beta_1_t, grad))
+    next_v = (
+      tf.multiply(beta_2_t, v) + tf.multiply(1.0 - beta_2_t,
+                                            tf.square(grad)))
+    
+    update = next_m / (tf.sqrt(next_v) + epsilon_t)
 
-      update_with_lr = ratio * self.learning_rate * update
+    if self._do_use_weight_decay(var.name):
+      update += weight_decay_rate_t * var
+    
+    ratio = 1.0
 
-      next_param = param - update_with_lr
+    if self._do_layer_adaptation(var_name):
+      w_norm = linalg_ops.norm(var, ord=2)
+      g_norm = linalg_ops.norm(update, ord=2)
+      ratio = array_ops.where(math_ops.greater(w_norm, 0), array_ops.where(
+          math_ops.greater(g_norm, 0), (w_norm / g_norm), 1.0), 1.0)
 
-      assignments.extend(
-          [param.assign(next_param),
-           m.assign(next_m),
-           v.assign(next_v)])
-    return tf.group(*assignments, name=name)
+    update_with_lr = ratio * learning_rate_t * update
 
+    next_param = var - update_with_lr
+    
+    return control_flow_ops.group(*[var.assign(next_param),
+                                        m.assign(next_m),
+                                        v.assign(next_v)])
+
+    
+  def _apply_sparse_shared(self, grad, var, indices, scatter_add):
+    var_name = self._get_variable_name(var.name)
+    learning_rate_t = math_ops.cast(
+        self.learning_rate_t, var.dtype.base_dtype)
+    beta_1_t = math_ops.cast(self.beta_1_t, var.dtype.base_dtype)
+    beta_2_t = math_ops.cast(self.beta_2_t, var.dtype.base_dtype)
+    epsilon_t = math_ops.cast(self.epsilon_t, var.dtype.base_dtype)
+    weight_decay_rate_t = math_ops.cast(
+        self.weight_decay_rate_t, var.dtype.base_dtype)
+
+    m = self.get_slot(var, 'm')
+    v = self.get_slot(var, 'v')
+
+    m_t = state_ops.assign(m, m * beta_1_t,
+                            use_locking=self._use_locking)
+
+    m_scaled_g_values = grad * (1 - beta_1_t)
+
+    with ops.control_dependencies([m_t]):
+        m_t = scatter_add(m, indices, m_scaled_g_values)
+
+    v_scaled_g_values = (grad * grad) * (1 - beta_2_t)
+    v_t = state_ops.assign(v, v * beta_2_t, use_locking=self._use_locking)
+    with ops.control_dependencies([v_t]):
+        v_t = scatter_add(v, indices, v_scaled_g_values)
+
+    update = m_t / (math_ops.sqrt(v_t) + epsilon_t)
+
+    if self._do_use_weight_decay(var.name):
+        update += weight_decay_rate_t * var
+
+
+    ratio = 1.0
+    if self._do_layer_adaptation(var_name):
+      w_norm = linalg_ops.norm(var, ord=2)
+      g_norm = linalg_ops.norm(update, ord=2)
+      ratio = array_ops.where(math_ops.greater(w_norm, 0), array_ops.where(
+          math_ops.greater(g_norm, 0), (w_norm / g_norm), 1.0), 1.0)
+
+    update_with_lr = ratio * learning_rate_t * update
+
+    var_update = state_ops.assign_sub(var,
+                                      update_with_lr,
+                                      use_locking=self._use_locking)
+    return control_flow_ops.group(*[var_update, m_t, v_t])
+
+  
+  def _apply_sparse(self, grad, var):
+    return self._apply_sparse_shared(
+        grad.values, var, grad.indices,
+        lambda x, i, v: state_ops.scatter_add(  # pylint: disable=g-long-lambda
+            x, i, v, use_locking=self._use_locking))
+
+  def _resource_scatter_add(self, x, i, v):
+    with ops.control_dependencies(
+        [resource_variable_ops.resource_scatter_add(
+            x.handle, i, v)]):
+        return x.value()
+
+  def _resource_apply_sparse(self, grad, var, indices):
+    return self._apply_sparse_shared(
+        grad, var, indices, self._resource_scatter_add)
+  
+
+
+    
   def _do_use_weight_decay(self, param_name):
     """Whether to use L2 weight decay for `param_name`."""
     if not self.weight_decay_rate:
@@ -146,3 +228,4 @@ class LAMBOptimizer(tf.train.Optimizer):
     if m is not None:
       param_name = m.group(1)
     return param_name
+

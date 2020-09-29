@@ -37,13 +37,13 @@ def use_gradient_accumulation(grads, tvars, optimizer, gradient_accmulation_mult
                 normalize_ops.append(sums[i].assign(tf.multiply(g, 1 / gradient_accmulation_multiplier)))
                 # assign to make sure it still is a variable, or else it will become a Tensor
         with tf.control_dependencies(normalize_ops):
-            minimize_op = optimizer.apply_gradients(zip(sums, tvars), global_step=global_step)
+            minimize_op = optimizer.apply_gradients(list(zip(sums, tvars)), global_step=global_step)
         return tf.group(minimize_op, *normalize_ops, name="apply_accumulated_gradients")
 
     train_op = tf.cond(tf.math.equal(global_step % gradient_accmulation_multiplier, 0),
                     lambda: apply_accumulated_gradients(sum_gradient),
-                    tf.no_op)
-                    #lambda: optimizer.apply_gradients(zip([None for _ in grads], tvars), global_step=global_step))
+                    #tf.no_op)
+                    lambda: optimizer.apply_gradients(zip([None for _ in grads], tvars), global_step=global_step))
 
     # reset accumulation when necessary
     def reset():

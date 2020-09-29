@@ -768,9 +768,9 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
                  labels, num_labels, use_one_hot_embeddings, task_name,
-                 hub_module, linear_layers=0, regression=False):
+                 hub_module, linear_layers=0, regression=False, use_sequence_output=False):
   """Creates a classification model."""
-  (output_layer, _) = fine_tuning_utils.create_albert(
+  (output_layer, sequence_output) = fine_tuning_utils.create_albert(
       albert_config=albert_config,
       is_training=is_training,
       input_ids=input_ids,
@@ -778,6 +778,16 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
       segment_ids=segment_ids,
       use_one_hot_embeddings=use_one_hot_embeddings,
       hub_module=hub_module)
+  
+  if is_training:
+    # I.e., 0.1 dropout
+    output_layer = tf.nn.dropout(output_layer, rate=0.1)
+
+  if use_sequence_output:
+    output_layer = dense_layer_output_projection(sequence_output, modeling.create_initializer(albert_config.initializer_range), modeling.get_activation(albert_config.hidden_act), name="dense_projection")
+    if is_training:
+      # I.e., 0.1 dropout
+      output_layer = tf.nn.dropout(output_layer, rate=0.1)
 
   if regression:
     num_labels = 1
@@ -785,7 +795,13 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
   hidden_size = output_layer.shape[-1].value
 
   for _ in range(linear_layers):
-    output_layer = tf.layers.Dense(hidden_size, activation=tf.nn.leaky_relu, kernel_initializer=modeling.create_initializer(albert_config.initializer_range))(output_layer)
+    output_layer = dense_layer(output_layer,
+                initializer=tf.truncated_normal_initializer(stddev=0.02),
+                output_size=hidden_size,
+                activation=modeling.get_activation(albert_config.hidden_act),
+                name='classifier')
+    if is_training:
+      output_layer = tf.nn.dropout(output_layer, rate=0.1)
 
   output_weights = tf.get_variable(
       "output_weights", [num_labels, hidden_size],
@@ -795,9 +811,6 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
       "output_bias", [num_labels], initializer=tf.zeros_initializer())
 
   with tf.variable_scope("loss"):
-    if is_training:
-      # I.e., 0.1 dropout
-      output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
 
     logits = tf.matmul(output_layer, output_weights, transpose_b=True)
     logits = tf.nn.bias_add(logits, output_bias)
@@ -1063,3 +1076,67 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 
     features.append(feature)
   return features
+
+
+
+def dense_layer_output_projection(input_tensor,
+                        initializer,
+                        activation,
+                        name=None):
+  """A dense layer with 3D kernel for projection.
+
+  Args:
+    input_tensor: float Tensor of shape [batch,from_seq_length,
+      num_attention_heads, size_per_head].
+    hidden_size: The size of hidden layer.
+    num_attention_heads: The size of output dimension.
+    head_size: The size of head.
+    initializer: Kernel initializer.
+    activation: Actication function.
+    name: The name scope of this layer.
+
+  Returns:
+    float logits Tensor.
+  """
+  input_shape = modeling.get_shape_list(input_tensor)
+  seq_len = input_shape[1]
+  hidden_size = input_shape[2]
+
+  with tf.variable_scope(name):
+    w = tf.get_variable(
+        name="kernel",
+        shape=[seq_len, hidden_size],
+        initializer=initializer)
+    b = tf.get_variable(
+        name="bias", shape=[hidden_size], initializer=tf.zeros_initializer)
+    ret = tf.einsum("BSH,SH->BH", input_tensor, w)
+    ret += b
+  if activation is not None:
+    return activation(ret)
+  else:
+    return ret
+
+def dense_layer(input_tensor,
+                initializer,
+                output_size,
+                activation,
+                name=None):
+  input_shape = modeling.get_shape_list(input_tensor)
+  
+  hidden_size = input_shape[-1]
+  with tf.variable_scope(name):
+    w = tf.get_variable(
+      name="kernel",
+      shape=[hidden_size, output_size],
+      initializer=initializer
+    )
+    b = tf.get_variable(
+        name="bias", shape=[output_size], initializer=tf.zeros_initializer)
+    
+    ret = tf.matmul(input_tensor, w)
+    ret = tf.nn.bias_add(ret, b)
+
+    if activation is not None:
+      return activation(ret)
+    else:
+      return ret
