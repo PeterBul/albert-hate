@@ -783,7 +783,10 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
     # I.e., 0.1 dropout
     output_layer = tf.nn.dropout(output_layer, rate=0.1)
 
+  tf.logging.info(use_sequence_output)
+
   if use_sequence_output:
+    tf.logging.info("Using sequence output")
     output_layer = dense_layer_output_projection(sequence_output, modeling.create_initializer(albert_config.initializer_range), modeling.get_activation(albert_config.hidden_act), name="dense_projection")
     if is_training:
       # I.e., 0.1 dropout
@@ -793,15 +796,15 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
     num_labels = 1
 
   hidden_size = output_layer.shape[-1].value
-
-  for _ in range(linear_layers):
-    output_layer = dense_layer(output_layer,
-                initializer=tf.truncated_normal_initializer(stddev=0.02),
-                output_size=hidden_size,
-                activation=modeling.get_activation(albert_config.hidden_act),
-                name='classifier')
-    if is_training:
-      output_layer = tf.nn.dropout(output_layer, rate=0.1)
+  with tf.variable_scope('classifier'):
+    for i in range(linear_layers):
+      output_layer = dense_layer(output_layer,
+                  initializer=tf.truncated_normal_initializer(stddev=0.02),
+                  output_size=hidden_size,
+                  activation=modeling.get_activation(albert_config.hidden_act),
+                  name='dense_' + str(i))
+      if is_training:
+        output_layer = tf.nn.dropout(output_layer, rate=0.1)
 
   output_weights = tf.get_variable(
       "output_weights", [num_labels, hidden_size],

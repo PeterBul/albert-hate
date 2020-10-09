@@ -1,0 +1,10 @@
+{
+"batch_size": 32,
+"linear_layers": 1,
+"model_size": "large",
+"num_labels": 3,
+"use_seq_out": false,
+"sequence_length": 128,
+"model_dir": "wandb/run-20201006_030410-s1rxsk87",
+"task": "c"
+}

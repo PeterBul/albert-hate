@@ -1,0 +1,48 @@
+method: bayes
+metric:
+  goal: maximize
+  name: eval/eval_f1_macro-avg
+parameters:
+  albert_dropout:
+    distribution: uniform
+    max: 0.3
+    min: 0
+  batch_size:
+    distribution: int_uniform
+    max: 128
+    min: 16
+  iterations:
+    distribution: int_uniform
+    max: 24000
+    min: 6000
+  learning_rate:
+    distribution: uniform
+    max: 3e-05
+    min: 9e-06
+  linear_layers:
+    distribution: int_uniform
+    max: 2
+    min: 0
+  model_size:
+    distribution: categorical
+    values:
+    - base
+    - large
+  optimizer:
+    distribution: categorical
+    values:
+    - lamb
+    - adamw
+  task:
+    distribution: constant
+    value: c
+  use_seq_out:
+    distribution: categorical
+    values:
+    - "true"
+    - "false"
+  warmup_steps:
+    distribution: int_uniform
+    max: 3000
+    min: 1000
+program: run-albert-hate.py
