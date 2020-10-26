@@ -11,9 +11,9 @@ def read_tfrecord_builder(is_training, seq_length, regression=False):
         Each example comes with several possible captions, so choose one randomly. This can be changed to using a non-probabilistic method.
         """
         feature_description = {
-          "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
-          "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
-          "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
+          "input_ids": tf.FixedLenFeature([128], tf.int64),
+          "input_mask": tf.FixedLenFeature([128], tf.int64),
+          "segment_ids": tf.FixedLenFeature([128], tf.int64),
           "is_real_example": tf.FixedLenFeature([], tf.int64),
         }
 
@@ -23,7 +23,11 @@ def read_tfrecord_builder(is_training, seq_length, regression=False):
             feature_description["label_ids"] = tf.FixedLenFeature([], tf.int64)
       
         example = decode_record(serialized_example, feature_description)
-        
+
+        if seq_length < 128:
+          for key in ['input_ids', 'input_mask', 'segment_ids']:
+            example[key] = example[key][:seq_length]
+            tf.logging.info(example[key])
         return example
     return read_tfrecord
 

@@ -3,39 +3,37 @@ metric:
   goal: maximize
   name: eval/eval_f1_macro-avg
 parameters:
-  albert_dropout:
-    distribution: uniform
-    max: 0.3
-    min: 0
   batch_size:
-    distribution: int_uniform
-    max: 128
+    distribution: q_uniform
+    max: 32
     min: 16
+    q: 16
+  dataset:
+    distribution: constant
+    value: 'davidson'
   iterations:
-    distribution: int_uniform
+    distribution: q_uniform
     max: 24000
     min: 6000
+    q: 1000
   learning_rate:
-    distribution: uniform
-    max: 3e-05
-    min: 9e-06
+    distribution: categorical
+    values: 
+    - 1e-05
+    - 2e-05
+    - 9e-06
   linear_layers:
     distribution: int_uniform
     max: 2
     min: 0
   model_size:
-    distribution: categorical
-    values:
-    - base
-    - large
+    distribution: constant
+    value: xlarge
   optimizer:
     distribution: categorical
     values:
     - lamb
     - adamw
-  task:
-    distribution: constant
-    value: c
   use_seq_out:
     distribution: categorical
     values:
@@ -44,5 +42,5 @@ parameters:
   warmup_steps:
     distribution: int_uniform
     max: 3000
-    min: 1000
-program: run-albert-hate.py
+    min: 100
+program: run_albert_hate.py

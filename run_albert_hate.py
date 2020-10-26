@@ -2,13 +2,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 import sys
 import os
 import argparse
 import datetime
 import pickle
 import json
+import numpy as np
+import pandas as pd
 import six
 import time
 import copy
@@ -22,6 +24,7 @@ from sklearn.metrics import confusion_matrix
 from constants import target_names, class_probabilities, num_labels
 
 parser = argparse.ArgumentParser()
+
 
 # Parameters
 parser.add_argument('--albert_dropout', type=float, default=0)
@@ -38,9 +41,12 @@ parser.add_argument('--sequence_length', type=int, default=128, help='The max se
 parser.add_argument('--regression', type=utils.str2bool, const=True, default=False, nargs='?', help='True if using regression data for training')
 parser.add_argument('--accumulation_steps', type=int, default=1, help='Set number of steps to accumulate for before doing update to parameters')
 parser.add_argument('--no_resampling', dest='use_resampling', default=True, action='store_false')
+parser.add_argument('--num_labels', default=None)
 
 # Control arguments
+parser.add_argument('--config_path', type=str, default=None, help="Path to model config for albert hate")
 parser.add_argument('--init_checkpoint', type=str, default=None, help="Checkpoint to train from")
+parser.add_argument('--wandb_run_path', type=str, default=None)
 parser.add_argument('--model_dir', type=str, help='The name of the folder to save the model')
 parser.add_argument('--predict', type=utils.str2bool, const=True, default=False, nargs='?')
 parser.add_argument('--debug', type=utils.str2bool, const=True, default=False, nargs='?', help='Set flag to debug')
@@ -48,6 +54,7 @@ parser.add_argument('--test', type=utils.str2bool, const=True, default=False, na
 parser.add_argument('--dataset', type=str, default='solid', help='The name of the dataset to be used. For now,  davidson or solid')
 parser.add_argument('--task', type=str, default='a', help='Task a, b or c for solid/olid dataset')
 parser.add_argument('--tree_predict', type=utils.str2bool, const=True, default=False, nargs='?')
+parser.add_argument('--ensamble', type=utils.str2bool, const=True, default=False, nargs='?')
 
 # Arguments that aren't very important
 parser.add_argument('--epochs', type=int, default=-1, help='Number of epochs to train. If not set, iterations are used instead.')
@@ -57,48 +64,34 @@ args = parser.parse_args()
 
 use_accumulation = args.accumulation_steps > 1
 
-print(args.__dict__)
-
-wandb.init(
-  project="albert-hate",
-  config=args.__dict__,
-  sync_tensorboard=True
-)
-
-model_dir = wandb.run.dir if args.model_dir is None else args.model_dir
-
-config = wandb.config
-
-
 class AlbertHateConfig(object):
     def __init__(self,
-                    num_labels=num_labels[args.dataset],
-                    batch_size=32,
                     linear_layers=0,
+                    model_dir=None,
                     model_size='base',
-                    use_seq_out=True,
+                    num_labels=num_labels[args.dataset],
                     regression=False,
                     sequence_length=128,
-                    model_dir=None,
-                    task=None
+                    use_seq_out=True,
+                    best_checkpoint=None
                     ):
-        self.num_labels = num_labels
-        self.batch_size = batch_size
         self.linear_layers = linear_layers
+        self.model_dir = model_dir
         self.model_size = model_size
-        self.use_seq_out = utils.str2bool(use_seq_out)
+        self.num_labels = num_labels
         self.regression = utils.str2bool(regression)
         self.sequence_length = sequence_length
-        self.model_dir = model_dir
-        self.task = task
+        self.use_seq_out = utils.str2bool(use_seq_out)
+        self.best_checkpoint = best_checkpoint
+
     
     @classmethod
     def from_dict(cls, json_object):
         """Constructs a `AlbertHateConfig` from a Python dictionary of parameters."""
         config = AlbertHateConfig()
         for (key, value) in six.iteritems(json_object):
-            if isinstance(config.__dict__[key], bool):
-                value = utils.str2bool(value)
+            #if isinstance(config.__dict__[key], bool):
+            #    value = utils.str2bool(value)
             config.__dict__[key] = value
         return config
 
@@ -117,6 +110,26 @@ class AlbertHateConfig(object):
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+
+print(args.__dict__)
+
+if args.config_path:
+    model_config = AlbertHateConfig.from_json_file(args.config_path)
+    for key, var in six.iteritems(model_config.__dict__):
+        args.__dict__[key] = var
+
+wandb.init(
+  project="albert-hate",
+  config=args.__dict__,
+  sync_tensorboard=True
+)
+
+model_dir = wandb.run.dir if args.model_dir is None else args.model_dir
+
+config = wandb.config
+
+
+
 
 
 using_epochs = args.epochs != -1 and args.dataset_length != -1
@@ -137,9 +150,9 @@ DIR = os.path.dirname(__file__)
 PATH_DATASET= 'data' + os.sep + 'tfrecords'
 
 if args.dataset == 'davidson':
-    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(args.sequence_length) + '.tfrecords'
-    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(args.sequence_length) + '.tfrecords'
-    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test' + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
+    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(128) + '.tfrecords'
+    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(128) + '.tfrecords'
+    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test' + os.sep + 'test-' + str(128) + '.tfrecords'
 elif args.dataset == 'solid':
     FILE_TRAIN = PATH_DATASET + os.sep + 'solid' + os.sep + 'task-' + args.task + os.sep + 'solid-' + str(args.sequence_length) + '.tfrecords'
     FILE_DEV = PATH_DATASET + os.sep + 'olid' + os.sep + 'task-' + args.task + os.sep + 'olid-' + str(args.sequence_length) + '.tfrecords'
@@ -148,6 +161,10 @@ elif args.dataset =='converted':
     FILE_TRAIN = PATH_DATASET + os.sep + 'converted' + os.sep + 'solid-' + str(args.sequence_length) + '.tfrecords'
     FILE_DEV = PATH_DATASET + os.sep + 'converted' + os.sep + 'olid-' + str(args.sequence_length) + '.tfrecords'
     FILE_TEST = PATH_DATASET + os.sep + 'converted' + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
+elif args.dataset == 'founta':
+    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + args.sequence_length + '.tfrecords'
+    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + args.sequence_length + '.tfrecords'
+    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test-' + args.sequence_length + '.tfrecords'
 else:
     #FILE_TRAIN = PATH_DATASET + os.sep + 'olid-2020-full-'+ ("reg-" if args.regression else "") + str(args.sequence_length) + '.tfrecords'
     #FILE_DEV = PATH_DATASET + os.sep + 'olid-2019-full-' + str(args.sequence_length) + '.tfrecords'
@@ -155,7 +172,10 @@ else:
     raise ValueError("Dataset not supported")
 
 if args.dataset in ('solid', 'olid'):
-    args.__dict__['dataset'] = args.dataset + '_' + args.task
+    args.dataset += '_' + args.task
+
+if args.num_labels is None:
+    args.num_labels = num_labels[args.dataset]
 
 ALBERT_PRETRAINED_PATH = 'albert_' + args.model_size
 
@@ -179,9 +199,34 @@ tf.logging.info("-------------------------------------")
 tf.logging.info('Epochs: \t' + str(epochs))
 tf.logging.info('Iterations: \t' +  str(ITERATIONS))
 
-def train_input_fn(batch_size):
+
+def k_fold_train(ds, folds, evaluate_on):
+    first = True
+    for i in range(0, folds):
+        if i != evaluate_on:
+            if first:
+                new_ds = ds.shard(folds,i)
+                first = False
+            else:
+                new_ds.concatenate(ds.shard(folds, i))
+    return new_ds
+
+def k_fold_eval(ds, folds, evaluate_on):
+    return ds.shard(folds, evaluate_on)
+
+
+def train_input_fn(batch_size, folds=1, evaluate_on=-1):
+    do_kfold = folds > 1 and evaluate_on > -1
+    tf.logging.info('Using TRAIN dataset: {}'.format(FILE_TRAIN))
     ds = tf.data.TFRecordDataset(FILE_TRAIN)
+    #ds_eval = tf.data.TFRecordDataset(FILE_DEV)
+    #ds = ds.concatenate(ds_eval)
     
+    if do_kfold:
+        ds_eval = tf.data.TFRecordDataset(FILE_DEV)
+        ds = ds.concatenate(ds_eval)
+        ds = k_fold_train(ds, folds, evaluate_on)
+
     ds = ds.map(utils.read_tfrecord_builder(is_training=True, seq_length=args.sequence_length, regression=args.regression))
     if args.use_resampling:
         tf.logging.info("Resampling dataset with oversampling and undersampling")
@@ -189,20 +234,34 @@ def train_input_fn(batch_size):
             lambda x: tf.data.Dataset.from_tensors(x).repeat(oversample_classes(x))
         )
         #ds = ds.filter(undersampling_filter)
-    ds = ds.repeat().shuffle(2048).batch(batch_size, drop_remainder=False)
+    
+    ds = ds.shuffle(2048).repeat().batch(batch_size, drop_remainder=False)
     return ds
 
-def eval_input_fn(batch_size, test=False):
-    if not test:
+def eval_input_fn(batch_size, test=False, folds=1, evaluate_on=-1):
+    do_kfold = folds > 1 and evaluate_on > -1
+    if do_kfold:
+        tf.logging.info('Using TRAIN dataset with k-fold with train set: {} on fold: {}'.format(FILE_TRAIN, evaluate_on))
+        ds = tf.data.TFRecordDataset(FILE_TRAIN)
+        ds_eval = tf.data.TFRecordDataset(FILE_DEV)
+        ds = ds.concatenate(ds_eval)
+        ds = k_fold_eval(ds, folds, evaluate_on)
+    elif not test:
         tf.logging.info('Using DEV dataset: {}'.format(FILE_DEV))
         ds = tf.data.TFRecordDataset(FILE_DEV)
     else:
         tf.logging.info('Using TEST dataset: {}'.format(FILE_TEST))
         ds = tf.data.TFRecordDataset(FILE_TEST)
     assert batch_size is not None, "batch_size must not be None"
-    ds = ds.map(utils.read_tfrecord_builder(is_training=False, seq_length=args.sequence_length)).batch(batch_size)
+    ds = ds.map(utils.read_tfrecord_builder(is_training=False, seq_length=args.sequence_length))
+    ds = ds.batch(batch_size)
     return ds
 
+def tf_count(t, val):
+    elements_equal_to_value = tf.equal(t, val)
+    as_ints = tf.cast(elements_equal_to_value, tf.int32)
+    count = tf.reduce_sum(as_ints)
+    return count
 
 def model_fn_builder(config=None):    
     def my_model_fn(features, labels, mode):
@@ -210,7 +269,9 @@ def model_fn_builder(config=None):
 
         training_hooks = []
 
-        albert_pretrained_path = 'albert_' + config.model_size
+        params = args if config is None else config
+
+        albert_pretrained_path = 'albert_' + params.model_size
 
         albert_config = modeling.AlbertConfig.from_json_file(albert_pretrained_path + os.sep + 'albert_config.json')
         if args.albert_dropout is not None:
@@ -223,12 +284,14 @@ def model_fn_builder(config=None):
         segment_ids = features['segment_ids']
         
 
+        tf.logging.info(input_ids)
         is_training = mode == tf.estimator.ModeKeys.TRAIN
 
-        if config.regression and is_training:
+        if params.regression and is_training:
             label_ids = features['average']
         else:
             label_ids = features['label_ids']
+
 
 
         (loss, per_example_loss, probabilities, logits, predictions) = classifier_utils.create_model(
@@ -238,18 +301,22 @@ def model_fn_builder(config=None):
                                                                             input_mask=input_mask, 
                                                                             segment_ids=segment_ids, 
                                                                             labels=label_ids,
-                                                                            num_labels=config.num_labels,
+                                                                            num_labels=params.num_labels,
                                                                             use_one_hot_embeddings=False,
                                                                             task_name='hsc', 
                                                                             hub_module=None, 
-                                                                            linear_layers=config.linear_layers,
-                                                                            regression=config.regression,
-                                                                            use_sequence_output=config.use_seq_out)
+                                                                            linear_layers=params.linear_layers,
+                                                                            regression=params.regression,
+                                                                            use_sequence_output=params.use_seq_out)
         
+        
+
         tvars = tf.trainable_variables()
         initialized_variable_names = {}
-
-        init_checkpoint = albert_pretrained_path + os.sep + 'model.ckpt-best'
+        if config and config.best_checkpoint:
+            init_checkpoint = config.best_checkpoint
+        else:
+            init_checkpoint = albert_pretrained_path + os.sep + 'model.ckpt-best'
         (assignment_map, initialized_variable_names) = \
             modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
 
@@ -304,6 +371,8 @@ def model_fn_builder(config=None):
         
         assert mode == tf.estimator.ModeKeys.TRAIN, "TRAIN is only ModeKey left"
 
+        
+
         logging_dict = {k: v[1] for k, v in metrics.items()}
         logging_dict['loss'] = loss
 
@@ -334,8 +403,28 @@ def model_fn_builder(config=None):
         logging_hook = tf.train.LoggingTensorHook(logging_dict, every_n_iter=args.accumulation_steps if args.accumulation_steps > 1 else 100)
         training_hooks.append(logging_hook)
 
+        #train_op = count_labels(train_op, label_ids)
+        
+
         return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op, training_hooks=training_hooks)
     return my_model_fn
+
+def count_labels(train_op, label_ids):
+    label_0 = tf_count(label_ids, 0)
+    label_1 = tf_count(label_ids, 1)
+    label_2 = tf_count(label_ids, 2)
+
+    new_counts = tf.stack([label_0, label_1, label_2], axis=0)
+    new_counts = tf.reshape(new_counts, [-1])
+
+    example_counter = tf.get_variable('example_counter', shape=(3), dtype=tf.int32, initializer=tf.constant_initializer(), aggregation=tf.VariableAggregation.SUM)
+    
+    update_counter = tf.assign_add(example_counter, new_counts)
+
+    update_counter = tf.Print(update_counter, [update_counter])
+
+    train_op = tf.group(train_op, [update_counter])
+    return train_op
 
 ctrl_dependencies = []
 
@@ -471,44 +560,80 @@ def undersampling_filter(example):
 def log_prediction_on_test(classifier):
     sp = spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')
     table = wandb.Table(columns=["Tweet", "Predicted Label", "True Label"])
+    gold_labels = []
+    predictions = []
     for pred in classifier.predict(input_fn=lambda: eval_input_fn(args.batch_size, test=True)):
         input_ids = pred['input_ids']
         gold = pred['gold']
+        gold_labels.append(gold)
         prediction = pred['predictions']
+        predictions.append(prediction)
         text = ''.join([sp.id_to_piece(id) for id in input_ids.tolist()]).replace('▁', ' ')
         text = re.sub('(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
         table.add_data(text, prediction, gold)
+
+    print(classification_report(gold_labels, predictions, target_names=target_names[args.dataset], digits=8))
+    print(confusion_matrix(gold_labels, predictions))
     wandb.log({"Predictions Test": table})
 
 def log_prediction_on_dev(classifier):
     sp = spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')
     table = wandb.Table(columns=["Tweet", "Predicted Label", "True Label"])
+    gold_labels = []
+    predictions = []
     for pred in classifier.predict(input_fn=lambda: eval_input_fn(args.batch_size)):
         input_ids = pred['input_ids']
         gold = pred['gold']
+        gold_labels.append(gold)
         prediction = pred['predictions']
+        predictions.append(prediction)
         text = ''.join([sp.id_to_piece(id) for id in input_ids.tolist()]).replace('▁', ' ')
         text = re.sub('(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
         table.add_data(text, prediction, gold)
+    print(classification_report(gold_labels, predictions, target_names=target_names[args.dataset], digits=8))
+    print(confusion_matrix(gold_labels, predictions))
     wandb.log({"Predictions Dev": table})
 
+def decode_input_ids(input_ids, processor):
+    text = ''.join([processor.id_to_piece(id) for id in input_ids.tolist()]).replace('▁', ' ')
+    text = re.sub('(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
+    return text
+
+def get_sentence_piece_processor():
+    return spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')
+
+def log_predictions(input_ids, predictions, gold, probabilities, name=""):
+    sp = get_sentence_piece_processor()
+    tweets = [decode_input_ids(input_id, processor=sp) for input_id in input_ids]
+    if name == "Majority Voting":
+        table = wandb.Table(columns=["Model Nr", "Tweet", "Predicted Label", "True Label", "Probabilities"])
+        for model_nr, (pred_array, prob_array) in enumerate(zip(predictions, probabilities)):
+            df = pd.DataFrame({'Tweets':tweets, 'Predictions':pred_array, 'Gold': gold, 'Probabilities': prob_array})
+            df.to_pickle(os.path.join(model_dir, 'predictions_majority_voting_{}.pkl'.format(model_nr)))
+            for tweet, pred, g, probs in zip(tweets, pred_array, gold, prob_array):
+                table.add_data(model_nr, tweet, pred, g, probs)
+    else:
+        table = wandb.Table(columns=["Tweet", "Predicted Label", "True Label", "Probabilities"])
+        df = pd.DataFrame({'Tweets': tweets, 'Predictions': predictions, 'Gold': gold, 'Probabilities': probabilities})
+        df.to_pickle(os.path.join(model_dir, 'predictions_mean.pkl'))
+        for tweet, pred, g, probs in zip(tweets, predictions, gold, probabilities):
+            table.add_data(tweet, pred, g, probs)
+    wandb.log({"Predictions {}".format(name): table})
 
 def predict_tree():
-    test = True
-    sp = spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')
     config_a = AlbertHateConfig.from_json_file('configs/top-a.json')
     classifier_a = tf.estimator.Estimator(
             model_fn=model_fn_builder(config=config_a),
             model_dir=os.path.abspath(config_a.model_dir)
             )
-    pred_a = [pred for pred in classifier_a.predict(input_fn=lambda: eval_input_fn(config_a.batch_size))]
+    pred_a = [pred for pred in classifier_a.predict(input_fn=lambda: eval_input_fn(128, test=args.test))]
 
     config_b = AlbertHateConfig.from_json_file('configs/top-b.json')
     classifier_b = tf.estimator.Estimator(
             model_fn=model_fn_builder(config=config_b),
             model_dir=os.path.abspath(config_b.model_dir)
             )
-    pred_b = [pred for pred in classifier_b.predict(input_fn=lambda: eval_input_fn(config_b.batch_size))]
+    pred_b = [pred for pred in classifier_b.predict(input_fn=lambda: eval_input_fn(128, test=args.test))]
 
     config_c = AlbertHateConfig.from_json_file('configs/top-c.json')
     classifier_c = tf.estimator.Estimator(
@@ -516,12 +641,12 @@ def predict_tree():
             model_dir=os.path.abspath(config_c.model_dir)
             )
     
-    pred_c = [pred for pred in classifier_c.predict(input_fn=lambda: eval_input_fn(config_c.batch_size))]
+    pred_c = [pred for pred in classifier_c.predict(input_fn=lambda: eval_input_fn(32, test=args.test))]
 
     final_pred = []
     gold = []
-    print("Predicting on davidson")
-    print("a(NOT) -> NONE | b(UNT) -> OFF | c(OTH) -> OFF | HATE")
+    print("Predicting on converted")
+    print("a(NOT) -> NONE | b(UNT) -> OFF | c(GRP) -> HATE | OFF")
     for i in range(len(pred_a)):
         gold.append(int(pred_a[i]['gold']))
         prediction_a = pred_a[i]['predictions']
@@ -551,27 +676,93 @@ def predict_tree():
                 else:
                     final_pred.append(1)
     
-    print(classification_report(gold, final_pred, target_names=target_names[args.dataset]))
+    print(classification_report(gold, final_pred, target_names=target_names[args.dataset], digits=8))
     print(confusion_matrix(gold, final_pred))
+
+def run_ensamble():
+    with tf.gfile.GFile('best_ensamble.json', "r") as reader:
+        text = reader.read()
+    configs = [AlbertHateConfig.from_dict(cnfg) for cnfg in json.loads(text)]
+
+    gold = []
+    predictions = []
+    probabilities = []
+    input_ids = []
+    for i, config in enumerate(configs):
+        ws = tf.estimator.WarmStartSettings(ckpt_to_initialize_from=config.best_checkpoint, vars_to_warm_start='.*')
+        classifier = tf.estimator.Estimator(
+            model_fn=model_fn_builder(config=config),
+            model_dir=model_dir,
+            config=tf.estimator.RunConfig(train_distribute=tf.distribute.MirroredStrategy()),
+            warm_start_from=ws
+            )
+        preds = [pred for pred in classifier.predict(input_fn=lambda: eval_input_fn(64, test=args.test))]
+        if i == 0:
+            gold = [int(p['gold']) for p in preds]
+            input_ids = [p['input_ids'] for p in preds]
+        # Predictions and probabilities are different between models, so these need to be added separately
+        predictions.append([int(p['predictions']) for p in preds])
+        probabilities.append([p['probabilities'] for p in preds])
+
+        print("----------Results for model {}----------------".format(i))
+        print(classification_report(gold, predictions[i], target_names=target_names[args.dataset], digits=8))
+        print(confusion_matrix(gold, predictions[i]))
+    
+    final_pred = [np.argmax(np.bincount(preds)) for preds in np.transpose(np.asarray(predictions))]
+    
+
+
+    print("------- Results with majority voting -----------")
+    print(classification_report(gold, final_pred, target_names=target_names[args.dataset], digits=8))
+    print(confusion_matrix(gold, final_pred))
+
+    log_predictions(input_ids, predictions, gold, probabilities, 'Majority Voting')
+
+    probabilities = np.asarray(probabilities)
+
+    final_pred = np.argmax(np.sum(probabilities, axis=0), axis=-1)
+    print("------- Results with mean -----------")
+    print(classification_report(gold, final_pred, target_names=target_names[args.dataset], digits=8))
+    print(confusion_matrix(gold, final_pred))
+    
+    log_predictions(input_ids, final_pred, gold, np.sum(probabilities, axis=0)/len(configs), 'Mean')
 
 
 if __name__ == "__main__":
     with tf.control_dependencies(ctrl_dependencies):
         if args.tree_predict:
             predict_tree()
+        elif args.ensamble:
+            run_ensamble()
         else:
             tf.debugging.set_log_device_placement(True)
             strategy = tf.distribute.MirroredStrategy()
-            config = None if args.test else tf.estimator.RunConfig(train_distribute=strategy, save_checkpoints_steps=500)
+            config = tf.estimator.RunConfig(train_distribute=strategy, save_checkpoints_steps=500)
 
-            if args.init_checkpoint:
+            if args.wandb_run_path:
+                tf.logging.info("Using WandB run path: {}".format(args.wandb_run_path))
+                model_config = wandb.restore('model_config.json', run_path=args.wandb_run_path)
+                model_config = AlbertHateConfig.from_json_file(model_config.name)
+                ws = tf.estimator.WarmStartSettings(ckpt_to_initialize_from=model_config.model_dir, vars_to_warm_start='.*')
+                if args.test:
+                    model_dir = model_config.model_dir
+                    tf.logging.info("Using model_dir from model_config: {}".format(model_dir))
+            elif args.config_path:
+                model_config = AlbertHateConfig.from_json_file(args.config_path)
+                ws = tf.estimator.WarmStartSettings(ckpt_to_initialize_from=model_config.model_dir, vars_to_warm_start='.*')
+                if args.test:
+                    model_dir = model_config.model_dir
+            elif args.init_checkpoint:
                 ws = tf.estimator.WarmStartSettings(ckpt_to_initialize_from=args.init_checkpoint, vars_to_warm_start='.*')
+                model_config = None
             else:
                 ws = None
-            
+                model_config = None
+                
+
 
             classifier = tf.estimator.Estimator(
-                model_fn=model_fn_builder(),
+                model_fn=model_fn_builder(model_config),
                 model_dir=os.path.abspath(model_dir),
                 config=config,
                 warm_start_from=ws
@@ -583,15 +774,38 @@ if __name__ == "__main__":
             elif args.predict:
                 log_prediction_on_dev(classifier)
             else:
-                #early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="eval_loss", max_steps_without_decrease=10000, min_steps=1000)
-                train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(args.batch_size), max_steps=ITERATIONS, hooks=[wandb.tensorflow.WandbHook(steps_per_log=500)])
+                early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="eval_loss", max_steps_without_decrease=1000, min_steps=1000)
+
+
+
+                train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(args.batch_size), max_steps=ITERATIONS, hooks=[wandb.tensorflow.WandbHook(steps_per_log=500), early_stopping])
                 eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(args.batch_size), steps=None)
 
                 tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
 
-                log_prediction_on_dev(classifier)
+                #classifier.train(input_fn=lambda: train_input_fn(args.batch_size),
+                #                    hooks=[wandb.tensorflow.WandbHook(steps_per_log=500)],
+                #                    max_steps=ITERATIONS)
+
+                log_prediction_on_test(classifier)
 
                 classifier.evaluate(input_fn=lambda:eval_input_fn(args.batch_size, test=True), steps=None)
+
+                if model_config is None:
+                    model_config = AlbertHateConfig(linear_layers=args.linear_layers, 
+                                                model_dir=model_dir,
+                                                model_size=args.model_size,
+                                                num_labels=args.num_labels,
+                                                regression=args.regression,
+                                                sequence_length=args.sequence_length,
+                                                use_seq_out=args.use_seq_out)
+                else:
+                    model_config.model_dir = model_dir
+                
+                config_file = os.path.join(model_dir, 'model_config.json')
+                
+                with tf.gfile.GFile(config_file, "w") as writer:
+                    writer.write(model_config.to_json_string())
 
 
             

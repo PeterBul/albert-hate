@@ -1,0 +1,38 @@
+[
+  {
+    "linear_layers": 0,
+    "model_dir": "/lustre1/home/petercbu/Semester-Project/albert-hate/wandb/run-20201005_094949-159c8mji",
+    "model_size": "base",
+    "num_labels": 3,
+    "regression": false,
+    "sequence_length": 128,
+    "use_seq_out": true
+  },
+  {
+    "linear_layers": 0,
+    "model_dir": "/lustre1/home/petercbu/Semester-Project/albert-hate/wandb/run-20201004_014846-1j5pwm05",
+    "model_size": "large",
+    "num_labels": 3,
+    "regression": false,
+    "sequence_length": 128,
+    "use_seq_out": false
+  },
+  {
+    "linear_layers": 0,
+    "model_dir": "/lustre1/home/petercbu/Semester-Project/albert-hate/wandb/run-20201005_035706-sqm4ukqz",
+    "model_size": "base",
+    "num_labels": 3,
+    "regression": false,
+    "sequence_length": 128,
+    "use_seq_out": true
+  },
+  {
+    "linear_layers": 0,
+    "model_dir": "/lustre1/home/petercbu/Semester-Project/albert-hate/wandb/run-20201020_103602-2qn4jncd",
+    "model_size": "xlarge",
+    "num_labels": 3,
+    "regression": false,
+    "sequence_length": 70,
+    "use_seq_out": false
+  }
+]

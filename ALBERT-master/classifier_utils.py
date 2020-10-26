@@ -838,8 +838,10 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
       predictions = tf.argmax(probabilities, axis=-1, output_type=tf.int32)
       log_probs = tf.nn.log_softmax(logits, axis=-1)
       one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
-
-      per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+      per_label_loss = one_hot_labels * log_probs
+      #label_weight = tf.constant([2.0,1.0, 1.0])
+      #per_label_loss = per_label_loss * label_weight
+      per_example_loss = -tf.reduce_sum(per_label_loss, axis=-1)
     else:
       #probabilities = logits
       probabilities = tf.nn.softmax(class_logits, axis=-1)
@@ -848,7 +850,10 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
       predictions = tf.argmax(probabilities, axis=-1, output_type=tf.int32)
       # maybe we have to squeeze labels
       per_example_loss = tf.square(logits - labels)
+    
     loss = tf.reduce_mean(per_example_loss)
+
+    
 
     if regression and is_training:
       logits = class_logits
