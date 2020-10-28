@@ -9,39 +9,53 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 from collections import Counter, OrderedDict
-from tokenization import TweetSpTokenizer
+from tokenization import TweetSpTokenizer, FullTokenizer
 from sklearn.model_selection import train_test_split
 
 
-class OlidExample(Example):
-  """A single training/test example for the OLID/SOLID dataset.
+class OlidExample(object):
+  """A single training/test example for the OLID dataset.
   
   """
 
-  def __init__(self, guid, tweet, label_id, task):
-    self.labels = self._get_labels(task)
-    super().__init__(guid, tweet, label_id)
-    self.task = task
+  def __init__(self,
+               guid,
+               tweet,
+               label):
+    self.guid = guid
+    self.tweet = tweet
+    self.label = label
+    self._set_label_id(label)
+    
 
-  def _set_label(self, label_id):
-    return self.labels[label_id]
+  def __str__(self):
+    return self.__repr__()
+
+  def __repr__(self):
+    s = ""
+    s += "guid: {}".format(self.guid)
+    s += ", tweet: {}".format(self.tweet)
+    s += ", label: {}".format(self.label)
+    return s
   
   def _set_label_id(self, label):
-    try:
-      return self.labels.index(label)
-    except ValueError:
-      raise ValueError("Label must be in {}".format(str(self.labels)))
-  
-  def _get_labels(self, task):
-    if task == 'a':
-      return ['NOT', 'OFF']
-    elif task == 'b':
-      return ['TIN', 'UNT']
-    elif task == 'c' 
-      return ['IND', 'GRP', 'OTH']
+    if label == "NOT":
+      self.label_id = 0
+    elif label == "OFF":
+      self.label_id = 1
+    elif label == "TIN":
+      self.label_id = 0
+    elif label == "UNT":
+      self.label_id = 1
+    elif label == "IND":
+      self.label_id = 0
+    elif label == "GRP":
+      self.label_id = 1
+    elif label == "OTH":
+      self.label_id =2
     else:
-      raise ValueError("Task must be a, b, or c")
-  
+      raise ValueError("Label has to be NOT, OFF, TIN, UNT, IND; GRP or OTH")
+
 
 class OlidRegExample(object):
   def __init__(self,
@@ -69,8 +83,6 @@ class OlidProcessor(object):
     self.do_lower_case = do_lower_case
     self.dev_fraction = dev_fraction
     self.random_state = random_state
-    self.oe2019 = os.path.join('data', 'offenseval-2019')
-    self.oe2020 = os.path.join('data', 'offenseval-2020')
   
   def get_train_examples(self, data_dir):
     """Gets a collection of `OlidExample`s for the training set"""
@@ -102,20 +114,20 @@ class OlidProcessor(object):
 
   def get_2020_test_examples(self, data_dir, task='a'):
     df = self.get_2020_test_dataframe(data_dir, task)
-    return self._create_examples(df_test.join(df_labels.set_index('id'), on='id'), task)
+    return self._create_examples(df, task)
   
   def get_2020_test_dataframe(self, data_dir, task='a'):
     df_test = pd.read_csv(
         os.path.join(data_dir, 'test_' + task + '_tweets.tsv'), sep='\t'
     )
     df_labels = pd.read_csv(
-        os.path.join(data_dir, 'gold' + os.path.sep + 'english' + task.upper() + '-goldlabels.csv'),
+        os.path.join(data_dir, 'gold' + os.path.sep + 'test_' + task + '_labels.csv'),
         header=None, names=['id', 'subtask_' + task]
     )
     return df_test.join(df_labels.set_index('id'), on='id')
   
   def get_2019_examples(self, data_dir, task):
-    df = get_2019_dataframe(data_dir, task)
+    df = self.get_2019_dataframe(data_dir, task)
     return self._create_examples(df, task)
 
   def get_2019_dataframe(self, data_dir, task):
@@ -158,6 +170,8 @@ class OlidProcessor(object):
     file_based_convert_examples_to_features(self.get_2020_examples('/content/drive/My Drive/prosjektoppgave/data/offenseval-2020', task), 128, tokenizer, '/content/drive/My Drive/masters_thesis/data/tfrecords/task-{}/new-solid-128.tfrecords'.format(task), task)
     file_based_convert_examples_to_features(self.get_2019_examples('/content/drive/My Drive/prosjektoppgave/data/offenseval-2019/', task), 128, tokenizer, '/content/drive/My Drive/masters_thesis/data/tfrecords/task-{}/new-olid-128.tfrecords'.format(task), task)
     file_based_convert_examples_to_features(self.get_2020_test_examples('/content/drive/My Drive/prosjektoppgave/data/offenseval-2020/task-{}/'.format(task)), 128, tokenizer, '/content/drive/My Drive/masters_thesis/data/tfrecords/task-{}/test/new-solid-128.tfrecords'.format(task), task)
+
+
 
   def get_labels(self):
     return ["NOT", "OFF"]
@@ -214,6 +228,9 @@ class OlidProcessor(object):
     return label
   
   
+
+
+
 def convert_single_example(example_index, example, stats, max_seq_length, tokenizer, reg, task):
   tokenized_tweet = tokenizer.tokenize(example.tweet)
   if len(tokenized_tweet) > max_seq_length - 2:
@@ -314,7 +331,6 @@ def convert_single_example(example_index, example, stats, max_seq_length, tokeni
     )
   return feature
 
-
 class InputFeatures(object):
   """A single set of features of data."""
 
@@ -391,6 +407,7 @@ def file_based_convert_examples_to_features(
   tf.logging.info('Max length: {}'.format(stats['max_len']))
   tf.logging.info('Label distribution: NOT: {}, OFF: {}'.format(stats['not_count'], stats['off_count']))
   return stats
+
 
 
 class Example(object):
@@ -695,4 +712,16 @@ class FountaProcessor(Processor):
 
   def get_labels(self):
     return ['abusive', 'hateful', 'normal', 'spam']
-    
+
+
+def main():
+  processor = OlidProcessor()
+  tokenizer = FullTokenizer(strip_handles=False, segment_hashtags=True, demojize=True, remove_url=True, remove_rt=True)
+  solid = processor.get_2020_dataframe(os.path.join('data', 'offenseval-2020'), 'a')
+  solid['text_a'] = solid.tweet.apply(lambda tweet: tokenizer.tokenize(tweet))
+  solid['label'] = solid.subtask_a.apply(lambda label: 0 if label == 'NOT' else 1)
+  solid_ernie = solid[['text_a', 'label']]
+  solid_ernie.to_csv('../ernie/data/ernie/solid/train.tsv', index=False, sep='\t')
+
+if __name__ == "__main__":
+    main()
