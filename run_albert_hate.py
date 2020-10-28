@@ -721,8 +721,12 @@ def run_ensamble():
 
 
 if __name__ == "__main__":
+    
     with tf.control_dependencies(ctrl_dependencies):
-        if args.tree_predict:
+        if True:
+            albert_config = modeling.AlbertConfig(30000)
+            print(albert_config.__dict__)
+        elif args.tree_predict:
             predict_tree()
         elif args.ensamble:
             run_ensamble()
