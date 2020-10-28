@@ -23,6 +23,9 @@ from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from constants import target_names, class_probabilities, num_labels
 
+from albert import optimization, modeling, classifier_utils
+from albert.gradient_accumulation import GradientAccumulationHook
+
 parser = argparse.ArgumentParser()
 
 
@@ -177,13 +180,6 @@ if args.num_labels is None:
 
 ALBERT_PRETRAINED_PATH = 'albert_' + args.model_size
 
-ALBERT_PATH = './ALBERT-master'
-sys.path.append(ALBERT_PATH)
-
-import optimization                                                     # pylint: disable=import-error
-import modeling                                                         # pylint: disable=import-error
-import classifier_utils                                                 # pylint: disable=import-error
-from gradient_accumulation import GradientAccumulationHook              # pylint: disable=import-error
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
