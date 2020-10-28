@@ -21,18 +21,18 @@ from __future__ import print_function
 
 import re
 import six
-import tensorflow.compat.v1 as tf
+import tensorflow.compat.v1 as tf                       #pylint: disable=import-error
 
-# pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import linalg_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.training import optimizer
-from tensorflow.python.ops import state_ops
-from tensorflow.python.ops import resource_variable_ops
-# pylint: enable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import            #pylint: disable=bad-option-value
+from tensorflow.python.framework import ops             #pylint: disable=import-error
+from tensorflow.python.ops import array_ops             #pylint: disable=import-error
+from tensorflow.python.ops import linalg_ops            #pylint: disable=import-error
+from tensorflow.python.ops import math_ops              #pylint: disable=import-error
+from tensorflow.python.ops import control_flow_ops      #pylint: disable=import-error
+from tensorflow.python.training import optimizer        #pylint: disable=import-error
+from tensorflow.python.ops import state_ops             #pylint: disable=import-error
+from tensorflow.python.ops import resource_variable_ops #pylint: disable=import-error
+# pylint: enable=g-direct-tensorflow-import             #pylint: disable=bad-option-value
 
 
 class LAMBOptimizer(tf.train.Optimizer):
@@ -188,7 +188,7 @@ class LAMBOptimizer(tf.train.Optimizer):
   def _apply_sparse(self, grad, var):
     return self._apply_sparse_shared(
         grad.values, var, grad.indices,
-        lambda x, i, v: state_ops.scatter_add(  # pylint: disable=g-long-lambda
+        lambda x, i, v: state_ops.scatter_add(  # pylint: disable=g-long-lambda   #pylint: disable=bad-option-value
             x, i, v, use_locking=self._use_locking))
 
   def _resource_scatter_add(self, x, i, v):

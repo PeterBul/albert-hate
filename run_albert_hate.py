@@ -17,14 +17,19 @@ import copy
 import wandb
 import sentencepiece as spm
 import re
-import utils
+import utils                                                                    #pylint: disable=import-error
 import metrics
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
-from constants import target_names, class_probabilities, num_labels
+from constants import target_names, class_probabilities, num_labels             #pylint: disable=no-name-in-module
 
-from albert import optimization, modeling, classifier_utils
-from albert.gradient_accumulation import GradientAccumulationHook
+ALBERT_PATH = './albert'
+sys.path.append(ALBERT_PATH)
+
+import optimization                                                             #pylint: disable=import-error
+import modeling                                                                 #pylint: disable=import-error
+import classifier_utils                                                         #pylint: disable=import-error
+from gradient_accumulation import GradientAccumulationHook                      #pylint: disable=import-error
 
 parser = argparse.ArgumentParser()
 
@@ -66,6 +71,11 @@ parser.add_argument('--dataset_length', type=int, default=-1, help='Length of da
 args = parser.parse_args()
 
 use_accumulation = args.accumulation_steps > 1
+
+assert args.task in ('a', 'b', 'c'), "Task has to be a, b, or c if specifying task. Task is only relevant for solid/olid dataset"
+
+if args.dataset in ('solid', 'olid'):
+    args.dataset += '_' + args.task
 
 class AlbertHateConfig(object):
     def __init__(self,
@@ -121,6 +131,7 @@ if args.config_path:
     for key, var in six.iteritems(model_config.__dict__):
         args.__dict__[key] = var
 
+
 wandb.init(
   project="albert-hate",
   config=args.__dict__,
@@ -131,11 +142,9 @@ model_dir = wandb.run.dir if args.model_dir is None else args.model_dir
 
 config = wandb.config
 
-
-
 using_epochs = args.epochs != -1 and args.dataset_length != -1
 assert args.epochs == -1 or using_epochs , "If epochs argument is set, epochs are used. Make sure to set both epochs and ds-length if using epochs"
-assert args.task in ('a', 'b', 'c'), "Task has to be a, b, or c if specifying task. Task is only relevant for solid/olid dataset"
+
 
 if using_epochs:
     ITERATIONS = int((args.epochs * args.dataset_length) / args.batch_size)
@@ -154,7 +163,7 @@ if args.dataset == 'davidson':
     FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(128) + '.tfrecords'
     FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(128) + '.tfrecords'
     FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test' + os.sep + 'test-' + str(128) + '.tfrecords'
-elif args.dataset == 'solid':
+elif args.dataset in ('solid_a', 'solid_b', 'solid_c'):
     FILE_TRAIN = PATH_DATASET + os.sep + 'solid' + os.sep + 'task-' + args.task + os.sep + 'solid-' + str(args.sequence_length) + '.tfrecords'
     FILE_DEV = PATH_DATASET + os.sep + 'olid' + os.sep + 'task-' + args.task + os.sep + 'olid-' + str(args.sequence_length) + '.tfrecords'
     FILE_TEST = PATH_DATASET + os.sep + 'solid' + os.sep + 'task-' + args.task + os.sep + 'test' + os.sep + 'solid-' + str(args.sequence_length) + '.tfrecords'
@@ -172,8 +181,7 @@ else:
     #FILE_TEST = PATH_DATASET + os.sep + 'test-2020-' + str(args.sequence_length) + '.tfrecords'
     raise ValueError("Dataset not supported")
 
-if args.dataset in ('solid', 'olid'):
-    args.dataset += '_' + args.task
+
 
 if args.num_labels is None:
     args.num_labels = num_labels[args.dataset]

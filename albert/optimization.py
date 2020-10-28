@@ -22,8 +22,8 @@ import re
 import lamb_optimizer
 import six
 from six.moves import zip
-import tensorflow.compat.v1 as tf
-from tensorflow.contrib import tpu as contrib_tpu
+import tensorflow.compat.v1 as tf                         #pylint: disable=import-error
+from tensorflow.contrib import tpu as contrib_tpu         #pylint: disable=import-error
 from adamw import AdamWeightDecayOptimizer
 from gradient_accumulation import use_gradient_accumulation
 
