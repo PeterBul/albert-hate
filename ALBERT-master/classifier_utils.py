@@ -839,7 +839,7 @@ def create_model(albert_config, is_training, input_ids, input_mask, segment_ids,
       log_probs = tf.nn.log_softmax(logits, axis=-1)
       one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
       per_label_loss = one_hot_labels * log_probs
-      #label_weight = tf.constant([2.0,1.0, 1.0])
+      #label_weight = tf.constant([2.0, 2.0, 1.0, 1.0])
       #per_label_loss = per_label_loss * label_weight
       per_example_loss = -tf.reduce_sum(per_label_loss, axis=-1)
     else:

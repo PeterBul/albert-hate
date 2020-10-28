@@ -162,9 +162,9 @@ elif args.dataset =='converted':
     FILE_DEV = PATH_DATASET + os.sep + 'converted' + os.sep + 'olid-' + str(args.sequence_length) + '.tfrecords'
     FILE_TEST = PATH_DATASET + os.sep + 'converted' + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
 elif args.dataset == 'founta':
-    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + args.sequence_length + '.tfrecords'
-    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + args.sequence_length + '.tfrecords'
-    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test-' + args.sequence_length + '.tfrecords'
+    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(args.sequence_length) + '.tfrecords'
+    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(args.sequence_length) + '.tfrecords'
+    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
 else:
     #FILE_TRAIN = PATH_DATASET + os.sep + 'olid-2020-full-'+ ("reg-" if args.regression else "") + str(args.sequence_length) + '.tfrecords'
     #FILE_DEV = PATH_DATASET + os.sep + 'olid-2019-full-' + str(args.sequence_length) + '.tfrecords'
