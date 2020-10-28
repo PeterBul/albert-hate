@@ -130,8 +130,6 @@ config = wandb.config
 
 
 
-
-
 using_epochs = args.epochs != -1 and args.dataset_length != -1
 assert args.epochs == -1 or using_epochs , "If epochs argument is set, epochs are used. Make sure to set both epochs and ds-length if using epochs"
 assert args.task in ('a', 'b', 'c'), "Task has to be a, b, or c if specifying task. Task is only relevant for solid/olid dataset"
@@ -185,7 +183,7 @@ sys.path.append(ALBERT_PATH)
 import optimization                                                     # pylint: disable=import-error
 import modeling                                                         # pylint: disable=import-error
 import classifier_utils                                                 # pylint: disable=import-error
-from gradient_accumulation import GradientAccumulationHook
+from gradient_accumulation import GradientAccumulationHook              # pylint: disable=import-error
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -359,8 +357,7 @@ def model_fn_builder(config=None):
 
         metrics = get_metrics(label_ids, predictions)
         metrics['accuracy'] = accuracy
-        
-        global_step = tf.train.get_global_step()
+
 
         if mode == tf.estimator.ModeKeys.EVAL:
             metrics = {'eval_' + k: v for k, v in metrics.items()}
@@ -482,7 +479,6 @@ def get_metrics(y_true, y_pred, target_names=target_names[args.dataset]):
     f1 = [tf.metrics.mean(f1[i]) for i in range(len_tn)]
     support = [tf.metrics.mean(support[i]) for i in range(len_tn)]
 
-    precision_dim = tf.shape(precision)[-1]
 
     for i, metric in enumerate(['precision', 'recall', 'f1', 'support']):
         for j, sublist in enumerate([target_names, ['micro-avg', 'macro-avg', 'weighted-avg']]):
@@ -558,7 +554,7 @@ def undersampling_filter(example):
     return acceptance
 
 def log_prediction_on_test(classifier):
-    sp = spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')
+    sp = get_sentence_piece_processor()
     table = wandb.Table(columns=["Tweet", "Predicted Label", "True Label"])
     gold_labels = []
     predictions = []
@@ -568,16 +564,16 @@ def log_prediction_on_test(classifier):
         gold_labels.append(gold)
         prediction = pred['predictions']
         predictions.append(prediction)
-        text = ''.join([sp.id_to_piece(id) for id in input_ids.tolist()]).replace('▁', ' ')
-        text = re.sub('(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
+        text = ''.join([sp.IdToPiece(id) for id in input_ids.tolist()]).replace('▁', ' ')
+        text = re.sub(r'(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
         table.add_data(text, prediction, gold)
-
+    
     print(classification_report(gold_labels, predictions, target_names=target_names[args.dataset], digits=8))
     print(confusion_matrix(gold_labels, predictions))
     wandb.log({"Predictions Test": table})
 
 def log_prediction_on_dev(classifier):
-    sp = spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')
+    sp = get_sentence_piece_processor()
     table = wandb.Table(columns=["Tweet", "Predicted Label", "True Label"])
     gold_labels = []
     predictions = []
@@ -587,8 +583,8 @@ def log_prediction_on_dev(classifier):
         gold_labels.append(gold)
         prediction = pred['predictions']
         predictions.append(prediction)
-        text = ''.join([sp.id_to_piece(id) for id in input_ids.tolist()]).replace('▁', ' ')
-        text = re.sub('(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
+        text = ''.join([sp.IdToPiece(id) for id in input_ids.tolist()]).replace('▁', ' ')
+        text = re.sub(r'(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
         table.add_data(text, prediction, gold)
     print(classification_report(gold_labels, predictions, target_names=target_names[args.dataset], digits=8))
     print(confusion_matrix(gold_labels, predictions))
@@ -596,11 +592,11 @@ def log_prediction_on_dev(classifier):
 
 def decode_input_ids(input_ids, processor):
     text = ''.join([processor.id_to_piece(id) for id in input_ids.tolist()]).replace('▁', ' ')
-    text = re.sub('(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
+    text = re.sub(r'(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
     return text
 
 def get_sentence_piece_processor():
-    return spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')
+    return spm.SentencePieceProcessor(model_file=ALBERT_PRETRAINED_PATH + os.sep + '30k-clean.model')               # pylint: disable=unexpected-keyword-arg
 
 def log_predictions(input_ids, predictions, gold, probabilities, name=""):
     sp = get_sentence_piece_processor()
