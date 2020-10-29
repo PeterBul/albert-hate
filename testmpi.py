@@ -54,7 +54,7 @@ if rank == 0:
 
   print(text_a.shape)
   print(labels.shape)
-  solid_ernie = pd.DataFrame({'text_a': text_a, 'labels': labels})
+  solid_ernie = pd.DataFrame({'text_a': text_a, 'label': labels})
   print(solid_ernie.shape)
 
   solid_ernie.to_csv('../ernie/data/solid/test.tsv', index=False, sep='\t')
