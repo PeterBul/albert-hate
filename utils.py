@@ -2,7 +2,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow.compat.v1 as tf
+import tensorflow.compat.v1 as tf   #pylint: disable=import-error
+import os
+import sentencepiece as spm
 
 def read_tfrecord_builder(is_training, seq_length, regression=False):
     def read_tfrecord(serialized_example):
@@ -55,3 +57,7 @@ def str2bool(value):
   if value.lower() in ('false', 'f', '0'):
     return False
   raise TypeError("Boolean value expected")
+
+
+def get_sentence_piece_processor():
+    return spm.SentencePieceProcessor(model_file='albert_base' + os.sep + '30k-clean.model')               # pylint: disable=unexpected-keyword-arg
