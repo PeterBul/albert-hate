@@ -63,6 +63,7 @@ parser.add_argument('--dataset', type=str, default='solid', help='The name of th
 parser.add_argument('--task', type=str, default='a', help='Task a, b or c for solid/olid dataset')
 parser.add_argument('--tree_predict', type=utils.str2bool, const=True, default=False, nargs='?')
 parser.add_argument('--ensamble', type=utils.str2bool, const=True, default=False, nargs='?')
+parser.add_argument('--dry_run', type=utils.str2bool, const=True, default=False, nargs='?')
 
 # Arguments that aren't very important
 parser.add_argument('--epochs', type=int, default=-1, help='Number of epochs to train. If not set, iterations are used instead.')
@@ -731,7 +732,9 @@ def run_ensamble():
 if __name__ == "__main__":
     
     with tf.control_dependencies(ctrl_dependencies):
-        if args.tree_predict:
+        if args.dry_run:
+            print("Hello World!")
+        elif args.tree_predict:
             predict_tree()
         elif args.ensamble:
             run_ensamble()
