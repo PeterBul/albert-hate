@@ -2,7 +2,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-
 import os
 import pandas as pd
 import numpy as np
@@ -11,6 +10,8 @@ from tqdm import tqdm
 from collections import Counter, OrderedDict
 from tokenization import TweetSpTokenizer, FullTokenizer
 from sklearn.model_selection import train_test_split
+
+
 
 
 class OlidExample(object):
@@ -118,10 +119,10 @@ class OlidProcessor(object):
   
   def get_2020_test_dataframe(self, data_dir, task='a'):
     df_test = pd.read_csv(
-        os.path.join(data_dir, 'test_' + task + '_tweets.tsv'), sep='\t'
+        os.path.join(data_dir, 'task-' + task, 'test_' + task + '_tweets.tsv'), sep='\t'
     )
     df_labels = pd.read_csv(
-        os.path.join(data_dir, 'gold' + os.path.sep + 'test_' + task + '_labels.csv'),
+        os.path.join(data_dir, 'task-' + task, 'gold', 'test_' + task + '_labels.csv'),
         header=None, names=['id', 'subtask_' + task]
     )
     return df_test.join(df_labels.set_index('id'), on='id')
@@ -715,13 +716,22 @@ class FountaProcessor(Processor):
 
 
 def main():
+  print("Getting processor")
   processor = OlidProcessor()
+  print("Getting tokenizer")
   tokenizer = FullTokenizer(strip_handles=False, segment_hashtags=True, demojize=True, remove_url=True, remove_rt=True)
+  print("Reading dataframe")
   solid = processor.get_2020_dataframe(os.path.join('data', 'offenseval-2020'), 'a')
+  print("Dataframe read")
+  print("Processing tweets")
   solid['text_a'] = solid.tweet.apply(lambda tweet: tokenizer.tokenize(tweet))
+  print("Processing labels")
   solid['label'] = solid.subtask_a.apply(lambda label: 0 if label == 'NOT' else 1)
   solid_ernie = solid[['text_a', 'label']]
-  solid_ernie.to_csv('../ernie/data/ernie/solid/train.tsv', index=False, sep='\t')
+  print(solid_ernie.head())
+  print("Saving df to tsv")
+  solid_ernie.to_csv('../ernie/data/solid/train-parallel.tsv', index=False, sep='\t')
+  print("df saved")
 
 if __name__ == "__main__":
-    main()
+  main()
