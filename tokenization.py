@@ -7,10 +7,13 @@ from nltk.tokenize import TweetTokenizer
 
 load()
 
-sp_model_epic = os.path.join('albert_base', '30k-clean.model')
+
 
 
 class FullTokenizer(TweetTokenizer):
+
+  sp_model_epic = os.path.join('albert_base', '30k-clean.model')
+
   def __init__(self, sp_model, preserve_case=False, reduce_len=False, strip_handles=False, 
                demojize=True, replace_url=True, segment_hashtags=True, 
                correct_user=True, url_to_http=True, remove_url=False, remove_rt=True, change_at=False):
@@ -25,6 +28,11 @@ class FullTokenizer(TweetTokenizer):
     self._change_at = change_at
     self.sp_model = spm.SentencePieceProcessor()
     self.sp_model.Load(sp_model)
+    
+  
+  @classmethod
+  def get_sp_model_epic(cls):
+    return cls.sp_model_epic
   
   def tokenize(self, tweet):                                                                    
     tweet = self.preprocess(tweet)
@@ -106,6 +114,5 @@ class TweetSpTokenizer(FullTokenizer):
     tweet = super().tokenize(tweet)
     tweet = self.sp_model.EncodeAsPieces(tweet)
     return tweet
-
 
 

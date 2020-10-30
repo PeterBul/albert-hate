@@ -467,7 +467,7 @@ class Example(object):
 
 class Processor(object):
   """Processor"""
-  def __init__(self, dataset_name, do_lower_case=True, dev_fraction=0.2, test_fraction=0.2, random_state=42, keep_df=True):
+  def __init__(self, dataset_name, data_dir, do_lower_case=True, dev_fraction=0.2, test_fraction=0.2, random_state=42, keep_df=True):
     assert dev_fraction + test_fraction < 1, "Total of dev and test fraction has to be less than 1" 
     self.dataset_name = dataset_name
     self.do_lower_case = do_lower_case
@@ -477,13 +477,14 @@ class Processor(object):
     self.random_state = random_state
     self.keep_df = keep_df
     self.labels = self.get_labels()
+    self.data_dir = data_dir
 
-    self._create_output_folder()
+    self._create_output_folder(data_dir)
     if keep_df:
       self.df = self._read_df()
   
-  
-  def get_train_dev_test_examples(self):
+
+  def get_train_dev_test_dataframes(self):
     """Gets a collection for the training, dev and test set"""
     df = self.df if self.keep_df else self._read_df()
     if self.dev_fraction > 0 and self.test_fraction > 0:
@@ -493,6 +494,10 @@ class Processor(object):
       print("Train: {}, dev: {}, test: {}".format(len(train), len(dev), len(test)))
     else:
       raise ValueError("The processor doesn't support not using dev and test set")
+    return train, dev, test
+  
+  def get_train_dev_test_examples(self):
+    train, dev, test = self.get_train_dev_test_dataframes()
     return self._create_examples(train), self._create_examples(dev), self._create_examples(test)
 
   def create_tfrecords(self, sequence_length, tokenizer=None):
@@ -503,8 +508,8 @@ class Processor(object):
     self._create_tfrecord(dev, 'dev', sequence_length, tokenizer)
     self._create_tfrecord(test, 'test', sequence_length, tokenizer)
 
-  def _create_output_folder(self):
-    self.output_folder = '/content/drive/My Drive/masters_thesis/data/tfrecords/{}'.format(self.dataset_name)
+  def _create_output_folder(self, data_dir):
+    self.output_folder = os.path.join(data_dir, 'tfrecords/{}'.format(self.dataset_name))
     if not os.path.exists(self.output_folder):
       os.makedirs(self.output_folder)
 
@@ -516,7 +521,7 @@ class Processor(object):
   def _create_examples(self, df):
     examples = []
     pbar = tqdm(total=len(df.index))
-    for index, row in df.iterrows():
+    for _, row in df.iterrows():
       examples.append(self._get_example_from_row(row))
       pbar.update(1)
     return examples
@@ -715,12 +720,52 @@ class FountaProcessor(Processor):
     return ['abusive', 'hateful', 'normal', 'spam']
 
 
+class FountaConvProcessor(Processor):
+  def __init__(self, data_dir, do_lower_case=True, dev_fraction=0.2, test_fraction=0.2, random_state=42, keep_df=False):
+    super().__init__(os.path.join('founta', 'conv'), data_dir, do_lower_case, dev_fraction, test_fraction, random_state, keep_df)
+
+  def _get_example_from_row(self, row):
+    return FountaExample(row.name, row.text_a, row.label)
+  
+  def _read_df(self):
+    print("Skipping reading df, since we want three dataframes")
+
+  def get_labels(self):
+    return ['abusive', 'hateful', 'normal', 'spam']
+
+  def get_train_dev_test_dataframes(self):
+    converted_founta = '../ernie/data/founta/conv/'
+    train = pd.read_csv(os.path.join(converted_founta, 'train.tsv'), sep='\t')
+    dev = pd.read_csv(os.path.join(converted_founta, 'dev'), sep='\t')
+    test = pd.read_csv(os.path.join(converted_founta, 'test'), sep='\t')
+    train = self.map_df(train)
+    dev = self.map_df(dev)
+    test = self.map_df(test)
+    return train, dev, test
+  
+  def map_df(self, df):
+    mapping = {0:1, 1:0, 2:2, 3:2}
+    df.label = df.label.apply(lambda l: mapping[l])
+    return df
+
+  
+
 def main():
   print("Getting processor")
   processor = OlidProcessor()
   print("Getting tokenizer")
-  tokenizer = FullTokenizer(strip_handles=False, segment_hashtags=True, demojize=True, remove_url=True, remove_rt=True)
+  tokenizer = FullTokenizer(FullTokenizer.get_sp_model_epic(), strip_handles=False, segment_hashtags=True, demojize=True, remove_url=True, remove_rt=True)
   print("Reading dataframe")
+  
+  converted_founta = '../ernie/data/founta/conv/'
+
+  train = pd.read_csv(os.path.join(converted_founta, 'train.tsv'), sep='\t')
+  dev = pd.read_csv(os.path.join(converted_founta, 'dev'), sep='\t')
+  test = pd.read_csv(os.path.join(converted_founta, 'test'), sep='\t')
+
+
+
+
   solid = processor.get_2020_dataframe(os.path.join('data', 'offenseval-2020'), 'a')
   print("Dataframe read")
   print("Processing tweets")
