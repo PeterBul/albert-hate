@@ -20,8 +20,8 @@ json config files or from TF-Hub modules.
 """
 
 import modeling
-#import tokenization
-import tensorflow.compat.v1 as tf
+import tokenization
+import tensorflow.compat.v1 as tf                                                       # pylint: disable=import-error
 
 '''
 def _create_model_from_hub(hub_module, is_training, input_ids, input_mask,
@@ -71,9 +71,9 @@ def create_albert(albert_config, is_training, input_ids, input_mask,
                                     use_one_hot_embeddings)
 
 
-"""
+
 def create_vocab(vocab_file, do_lower_case, spm_model_file, hub_module):
-  Creates a vocab, either from vocab file or from a TF-Hub module.
+  #Creates a vocab, either from vocab file or from a TF-Hub module.
   if hub_module:
     return tokenization.FullTokenizer.from_hub_module(
         hub_module=hub_module,
@@ -83,4 +83,3 @@ def create_vocab(vocab_file, do_lower_case, spm_model_file, hub_module):
         vocab_file=vocab_file, do_lower_case=do_lower_case,
         spm_model_file=spm_model_file)
 
-"""
