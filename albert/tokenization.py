@@ -25,8 +25,8 @@ import re
 import unicodedata
 import six
 from six.moves import range
-import tensorflow.compat.v1 as tf
-import tensorflow_hub as hub
+import tensorflow.compat.v1 as tf                 # pylint: disable=import-error
+import tensorflow_hub as hub                      # pylint: disable=import-error
 import sentencepiece as spm
 
 SPIECE_UNDERLINE = u"▁".encode("utf-8")
