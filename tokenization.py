@@ -28,7 +28,8 @@ class FullTokenizer(TweetTokenizer):
   
   def tokenize(self, tweet):                                                                    
     tweet = self.preprocess(tweet)
-    tweet = self.sp_model.encode_as_pieces(tweet)
+    tweet = self.sp_model.EncodeAsPieces(tweet)
+    return tweet
 
   def preprocess(self, tweet):
     tweet = re.sub(r'^!+', '!', tweet)
@@ -39,9 +40,8 @@ class FullTokenizer(TweetTokenizer):
 
     tweet = " ".join(super().tokenize(tweet))
 
-    space_pattern = '\s+'
-    giant_url_regex = (r'http[s]?://(?:[a-zA-Z]|[0-9]|[#$-_@.&+]|'
-        '[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+    space_pattern = r'\s+'
+    giant_url_regex = (r'http[s]?://(?:[a-zA-Z]|[0-9]|[#$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
 
     tweet = re.sub(space_pattern, ' ', tweet)
     if self._demojize:
@@ -61,7 +61,7 @@ class FullTokenizer(TweetTokenizer):
 
 
   def _segment_tweet(self, tweet):
-    hashtag_p = re.compile('#([\w]+)')
+    hashtag_p = re.compile(r'#([\w]+)')
     return re.sub(hashtag_p, lambda matchobj: '# ' + ' '.join(segment(matchobj.group(1))), tweet)
   
   def _correct_user(self, tweet):
@@ -104,7 +104,7 @@ class TweetSpTokenizer(FullTokenizer):
   
   def tokenize(self, tweet):
     tweet = super().tokenize(tweet)
-    tweet = self.sp_model.encode_as_pieces(tweet)
+    tweet = self.sp_model.EncodeAsPieces(tweet)
     return tweet
 
 
