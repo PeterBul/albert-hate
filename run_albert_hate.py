@@ -222,8 +222,8 @@ def train_input_fn(batch_size, folds=1, evaluate_on=-1):
     do_kfold = folds > 1 and evaluate_on > -1
     tf.logging.info('Using TRAIN dataset: {}'.format(FILE_TRAIN))
     ds = tf.data.TFRecordDataset(FILE_TRAIN)
-    #ds_eval = tf.data.TFRecordDataset(FILE_DEV)
-    #ds = ds.concatenate(ds_eval)
+    ds_eval = tf.data.TFRecordDataset(FILE_DEV)
+    ds = ds.concatenate(ds_eval)
     
     if do_kfold:
         ds_eval = tf.data.TFRecordDataset(FILE_DEV)
