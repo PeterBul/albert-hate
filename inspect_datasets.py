@@ -3,7 +3,14 @@ import utils
 import os
 import numpy as np
 from constants import num_labels
+import argparse
+from contextlib import ExitStack
 
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--use_cpu', default=False, action='store_true')
+args = parser.parse_args()
 
 def count_labels(dataset_name):
   iterator = load_iterator(dataset_name)
@@ -23,19 +30,25 @@ def count_labels(dataset_name):
   return count
 
 def count_examples(dataset_name):
-  iterator = load_iterator(dataset_name)
-  next_element = iterator.get_next()
 
-  tf.logging.info("Counting examples in dataset: {}".format(dataset_name))
-  count = 0
-  with tf.compat.v1.Session() as sess:
-    try:
-      while True:
-        sess.run(next_element)
-        count += 1
-    except tf.errors.OutOfRangeError:
-      pass
-  tf.logging.info("Count: {}".format(count))
+  with ExitStack() as stack:
+    if args.use_cpu:
+      stack.enter_context(tf.device('/cpu:0'))
+     
+
+    iterator = load_iterator(dataset_name)
+    next_element = iterator.get_next()
+
+    tf.logging.info("Counting examples in dataset: {}".format(dataset_name))
+    count = 0
+    with tf.compat.v1.Session() as sess:
+      try:
+        while True:
+          sess.run(next_element)
+          count += 1
+      except tf.errors.OutOfRangeError:
+        pass
+    tf.logging.info("Count: {}".format(count))
 
   return count
 
