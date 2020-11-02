@@ -3,14 +3,7 @@ import utils
 import os
 import numpy as np
 from constants import num_labels
-import argparse
 from contextlib import ExitStack
-
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--use_cpu', default=False, action='store_true')
-args = parser.parse_args()
 
 def count_labels(dataset_name, use_oversampling, use_undersampling):
   iterator = load_iterator(dataset_name, use_oversampling, use_undersampling)
@@ -68,4 +61,8 @@ def load_iterator(dataset_name, use_oversampling, use_undersampling):
   return iterator
 
 if __name__ == "__main__":
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--use_cpu', default=False, action='store_true')
+  args = parser.parse_args()
   print(count_examples('founta', use_oversampling=True, use_undersampling=False, use_cpu=args.use_cpu))

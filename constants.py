@@ -21,4 +21,4 @@ class_probabilities = {'davidson': [0.06, 0.77, 0.17],
 num_labels = {'davidson': 3, 'solid_a': 2, 'solid_b': 2, 'solid_c': 3, 'converted': 3, 'founta': 4, 'founta-converted':3}
 
 
-train_ds_lengths = {'founta': 30324, 'founta-converted': 30324, 'founta-upsampled': 42036}
+train_ds_lengths = {'founta': 30324, 'founta-converted': 30324, 'founta-upsampled': 42036, 'founta-converted-upsampled': 42036}
