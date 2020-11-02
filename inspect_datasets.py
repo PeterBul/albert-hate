@@ -29,7 +29,7 @@ def count_labels(dataset_name):
 
   return count
 
-def count_examples(dataset_name):
+def count_examples(dataset_name, use_oversampling, use_undersampling):
 
   with ExitStack() as stack:
     if args.use_cpu:
@@ -52,7 +52,7 @@ def count_examples(dataset_name):
 
   return count
 
-def load_iterator(dataset_name):
+def load_iterator(dataset_name, use_oversampling, use_undersampling):
   tfrecord = os.path.join('data', 'tfrecords', dataset_name, 'train-128.tfrecords')
   dataset = tf.data.TFRecordDataset(tfrecord)
   dataset = dataset.map(utils.read_tfrecord_builder(is_training=True, seq_length=128, regression=False))

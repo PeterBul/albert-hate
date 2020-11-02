@@ -146,6 +146,8 @@ config = wandb.config
 
 using_epochs = args.epochs != -1
 
+if using_epochs and args.dataset not in train_ds_lengths:
+    ds_length = 
 
 if using_epochs:
     ITERATIONS = int((args.epochs * args.dataset_length) / args.batch_size)
@@ -240,7 +242,7 @@ def train_input_fn(batch_size, folds=1, evaluate_on=-1):
         ds = ds.flat_map(
             lambda x: tf.data.Dataset.from_tensors(x).repeat(utils.oversample_classes(x, args.dataset))
         )
-        #ds = ds.filter(undersampling_filter)
+        #ds = ds.filter(utils.undersampling_filter)
     
     ds = ds.shuffle(2048).repeat().batch(batch_size, drop_remainder=False)
     return ds
@@ -499,35 +501,6 @@ def get_metrics(y_true, y_pred, target_names=target_names[args.dataset]):
     return metrics
 
 
-
-
-# sampling parameters use it wisely 
-
-undersampling_coef = 0.9 # if equal to 0 then undersampling_filter() always returns True
-
-
-
-
-def undersampling_filter(example):
-    """
-    Computes if given example is rejected or not.
-    """
-    label_id = example['label_ids']
-    # Fn returning negative class probability
-    #def f1(i): return tf.constant(class_probabilities[args.dataset][i])
-    #def f2(): return tf.cond(tf.math.equal(label_id, tf.constant(1)), lambda: f1(1), lambda: f1(2))
-
-    #class_prob = tf.cond(tf.math.equal(label_id, tf.constant(0)), lambda: f1(0), f2)
-    class_prob = tf.gather(class_probabilities[args.dataset], label_id)
-    class_target_prob = tf.constant(1/num_labels[args.dataset])
-
-    prob_ratio = tf.cast(class_target_prob/class_prob, dtype=tf.float32)
-    prob_ratio = prob_ratio ** undersampling_coef
-    prob_ratio = tf.minimum(prob_ratio, 1.0)
-
-    acceptance = tf.less_equal(tf.random_uniform([], dtype=tf.float32), prob_ratio)
-    # predicate must return a scalar boolean tensor
-    return acceptance
 
 def log_prediction_on_test(classifier):
     sp = get_sentence_piece_processor()
