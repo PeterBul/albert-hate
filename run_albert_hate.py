@@ -144,8 +144,7 @@ model_dir = wandb.run.dir if args.model_dir is None else args.model_dir
 
 config = wandb.config
 
-using_epochs = args.epochs != -1 and args.dataset_length != -1
-assert args.epochs == -1 or using_epochs , "If epochs argument is set, epochs are used. Make sure to set both epochs and ds-length if using epochs"
+using_epochs = args.epochs != -1
 
 
 if using_epochs:
