@@ -36,7 +36,7 @@ def count_examples(dataset_name, use_oversampling, use_undersampling):
       stack.enter_context(tf.device('/cpu:0'))
      
 
-    iterator = load_iterator(dataset_name)
+    iterator = load_iterator(dataset_name, use_oversampling, use_undersampling)
     next_element = iterator.get_next()
 
     tf.logging.info("Counting examples in dataset: {}".format(dataset_name))
@@ -56,13 +56,16 @@ def load_iterator(dataset_name, use_oversampling, use_undersampling):
   tfrecord = os.path.join('data', 'tfrecords', dataset_name, 'train-128.tfrecords')
   dataset = tf.data.TFRecordDataset(tfrecord)
   dataset = dataset.map(utils.read_tfrecord_builder(is_training=True, seq_length=128, regression=False))
-  dataset = dataset.flat_map(
-              lambda x: tf.data.Dataset.from_tensors(x).repeat(utils.oversample_classes(x, dataset_name))
-          )
+  if use_oversampling:
+    dataset = dataset.flat_map(
+                lambda x: tf.data.Dataset.from_tensors(x).repeat(utils.oversample_classes(x, dataset_name))
+            )
+  if use_undersampling:
+    dataset = dataset.filter(utils.undersampling_filter)
 
   iterator = dataset.make_one_shot_iterator()
 
   return iterator
 
 if __name__ == "__main__":
-  print(count_examples('founta'))
+  print(count_examples('founta', use_oversampling=True, use_undersampling=False))
