@@ -14,6 +14,7 @@ import pandas as pd
 import six
 import time
 import copy
+import math
 import wandb
 import sentencepiece as spm
 import re
@@ -752,7 +753,7 @@ if __name__ == "__main__":
                 early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="eval_loss", max_steps_without_decrease=1000, min_steps=1000)
 
                 if args.dataset == 'founta':
-                    ITERATIONS = math.roof(train_ds_lengths['founta-upsampled'] * 4 / 32)
+                    ITERATIONS = math.ceil(train_ds_lengths['founta-upsampled'] * 4 / 32)
 
                 train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(args.batch_size), max_steps=ITERATIONS, hooks=[wandb.tensorflow.WandbHook(steps_per_log=500), early_stopping])
                 eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(args.batch_size), steps=None)
