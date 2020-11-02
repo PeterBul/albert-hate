@@ -12,8 +12,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--use_cpu', default=False, action='store_true')
 args = parser.parse_args()
 
-def count_labels(dataset_name):
-  iterator = load_iterator(dataset_name)
+def count_labels(dataset_name, use_oversampling, use_undersampling):
+  iterator = load_iterator(dataset_name, use_oversampling, use_undersampling)
   next_element = iterator.get_next()
 
   count = [0 for i in range(num_labels[dataset_name])]
@@ -29,10 +29,10 @@ def count_labels(dataset_name):
 
   return count
 
-def count_examples(dataset_name, use_oversampling, use_undersampling):
+def count_examples(dataset_name, use_oversampling, use_undersampling, use_cpu=False):
 
   with ExitStack() as stack:
-    if args.use_cpu:
+    if use_cpu:
       stack.enter_context(tf.device('/cpu:0'))
      
 
@@ -68,4 +68,4 @@ def load_iterator(dataset_name, use_oversampling, use_undersampling):
   return iterator
 
 if __name__ == "__main__":
-  print(count_examples('founta', use_oversampling=True, use_undersampling=False))
+  print(count_examples('founta', use_oversampling=True, use_undersampling=False, use_cpu=args.use_cpu))
