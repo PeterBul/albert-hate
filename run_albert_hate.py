@@ -23,6 +23,7 @@ import metrics
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from constants import target_names, class_probabilities, num_labels, train_ds_lengths             #pylint: disable=no-name-in-module
+from inspect_datasets import count_examples
 
 ALBERT_PATH = './albert'
 sys.path.append(ALBERT_PATH)
@@ -65,6 +66,7 @@ parser.add_argument('--task', type=str, default='a', help='Task a, b or c for so
 parser.add_argument('--tree_predict', type=utils.str2bool, const=True, default=False, nargs='?')
 parser.add_argument('--ensamble', type=utils.str2bool, const=True, default=False, nargs='?')
 parser.add_argument('--dry_run', type=utils.str2bool, const=True, default=False, nargs='?')
+parser.add_argument('--do_eval', type=utils.str2bool, const=True, default=False, nargs='?')
 
 # Arguments that aren't very important
 parser.add_argument('--epochs', type=int, default=-1, help='Number of epochs to train. If not set, iterations are used instead.')
@@ -146,11 +148,16 @@ config = wandb.config
 
 using_epochs = args.epochs != -1
 
-if using_epochs and args.dataset not in train_ds_lengths:
-    ds_length = 
-
 if using_epochs:
-    ITERATIONS = int((args.epochs * args.dataset_length) / args.batch_size)
+    ds_tmp = args.dataset + '-upsampled' if args.using_resampling else args.dataset
+    if ds_tmp not in train_ds_lengths:
+        tf.logging.warning("Dataset length should be put in constants if using epochs to not having to iterate through dataset to count examples.\n \
+            If using upsampling, add ``-upsampled`` to dataset name in train_ds_lengths. i.e. ``founta-upsampled`` for ``founta``")
+        ds_length = count_examples(args.dataset, args.use_resampling, False)
+    else:
+        ds_length = train_ds_lengths[ds_tmp]
+
+    ITERATIONS = math.ceil((args.epochs * ds_length) / args.batch_size)
 else:
     ITERATIONS = args.iterations
 
@@ -724,17 +731,15 @@ if __name__ == "__main__":
             else:
                 early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="eval_loss", max_steps_without_decrease=1000, min_steps=1000)
 
-                if args.dataset == 'founta':
-                    ITERATIONS = math.ceil(train_ds_lengths['founta-upsampled'] * 4 / 32)
+                if args.do_eval:
+                    train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(args.batch_size), max_steps=ITERATIONS, hooks=[wandb.tensorflow.WandbHook(steps_per_log=500), early_stopping])
+                    eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(args.batch_size), steps=None)
 
-                train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(args.batch_size), max_steps=ITERATIONS, hooks=[wandb.tensorflow.WandbHook(steps_per_log=500), early_stopping])
-                eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(args.batch_size), steps=None)
-
-                tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
-
-                #classifier.train(input_fn=lambda: train_input_fn(args.batch_size),
-                #                    hooks=[wandb.tensorflow.WandbHook(steps_per_log=500)],
-                #                    max_steps=ITERATIONS)
+                    tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
+                else:
+                    classifier.train(input_fn=lambda: train_input_fn(args.batch_size),
+                                        hooks=[wandb.tensorflow.WandbHook(steps_per_log=500)],
+                                        max_steps=ITERATIONS)
 
                 log_prediction_on_test(classifier)
 
