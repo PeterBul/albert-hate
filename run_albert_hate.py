@@ -765,8 +765,6 @@ if __name__ == "__main__":
 
                 log_prediction_on_test(classifier)
 
-                classifier.evaluate(input_fn=lambda:eval_input_fn(args.batch_size, test=True), steps=None)
-
                 if model_config is None:
                     model_config = AlbertHateConfig(linear_layers=args.linear_layers, 
                                                 model_dir=model_dir,
