@@ -590,13 +590,13 @@ class Processor(object):
     stats[example.label.lower()] += 1
 
     if example_index < 20:
-      tf.logging.info("*** Example ***")
-      tf.logging.info("guid: {}".format(example.guid))
-      tf.logging.info("tokens: {}".format(" ".join(tokens)))
-      tf.logging.info("input_ids: {}".format(" ".join([str(x) for x in input_ids])))
-      tf.logging.info("input_mask: {}".format(" ".join([str(x) for x in input_mask])))
-      tf.logging.info("segment_ids: {}".format(" ".join([str(x) for x in segment_ids])))
-      tf.logging.info("label: %s (id = %d)" % (example.label, example.label_id))
+      print("*** Example ***")
+      print("guid: {}".format(example.guid))
+      print("tokens: {}".format(" ".join(tokens)))
+      print("input_ids: {}".format(" ".join([str(x) for x in input_ids])))
+      print("input_mask: {}".format(" ".join([str(x) for x in input_mask])))
+      print("segment_ids: {}".format(" ".join([str(x) for x in segment_ids])))
+      print("label: %s (id = %d)" % (example.label, example.label_id))
     
 
     feature = InputFeatures(
@@ -736,47 +736,20 @@ class FountaConvProcessor(Processor):
   def get_train_dev_test_dataframes(self):
     converted_founta = '../ernie/data/founta/conv/'
     train = pd.read_csv(os.path.join(converted_founta, 'train.tsv'), sep='\t')
-    dev = pd.read_csv(os.path.join(converted_founta, 'dev'), sep='\t')
-    test = pd.read_csv(os.path.join(converted_founta, 'test'), sep='\t')
-    train = self.map_df(train)
-    dev = self.map_df(dev)
-    test = self.map_df(test)
+    dev = pd.read_csv(os.path.join(converted_founta, 'dev.tsv'), sep='\t')
+    test = pd.read_csv(os.path.join(converted_founta, 'test.tsv'), sep='\t')
     return train, dev, test
   
-  def map_df(self, df):
-    mapping = {0:1, 1:0, 2:2, 3:2}
-    df.label = df.label.apply(lambda l: mapping[l])
-    return df
 
   
 
 def main():
   print("Getting processor")
-  processor = OlidProcessor()
+  processor = FountaConvProcessor('data')
   print("Getting tokenizer")
   tokenizer = FullTokenizer(FullTokenizer.get_sp_model_epic(), strip_handles=False, segment_hashtags=True, demojize=True, remove_url=True, remove_rt=True)
-  print("Reading dataframe")
-  
-  converted_founta = '../ernie/data/founta/conv/'
-
-  train = pd.read_csv(os.path.join(converted_founta, 'train.tsv'), sep='\t')
-  dev = pd.read_csv(os.path.join(converted_founta, 'dev'), sep='\t')
-  test = pd.read_csv(os.path.join(converted_founta, 'test'), sep='\t')
-
-
-
-
-  solid = processor.get_2020_dataframe(os.path.join('data', 'offenseval-2020'), 'a')
-  print("Dataframe read")
-  print("Processing tweets")
-  solid['text_a'] = solid.tweet.apply(lambda tweet: tokenizer.tokenize(tweet))
-  print("Processing labels")
-  solid['label'] = solid.subtask_a.apply(lambda label: 0 if label == 'NOT' else 1)
-  solid_ernie = solid[['text_a', 'label']]
-  print(solid_ernie.head())
-  print("Saving df to tsv")
-  solid_ernie.to_csv('../ernie/data/solid/train-parallel.tsv', index=False, sep='\t')
-  print("df saved")
+  print("Creating tfrecords")
+  processor.create_tfrecords(128, tokenizer)
 
 if __name__ == "__main__":
   main()

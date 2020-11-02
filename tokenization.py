@@ -67,6 +67,9 @@ class FullTokenizer(TweetTokenizer):
       tweet = re.sub('@', '[at]', tweet)
     return tweet
 
+  def convert_tokens_to_ids(self, tokens):
+    return [self.sp_model.PieceToId(token) for token in tokens]
+
 
   def _segment_tweet(self, tweet):
     hashtag_p = re.compile(r'#([\w]+)')
