@@ -21,7 +21,7 @@ import utils                                                                    
 import metrics
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
-from constants import target_names, class_probabilities, num_labels             #pylint: disable=no-name-in-module
+from constants import target_names, class_probabilities, num_labels, train_ds_lengths             #pylint: disable=no-name-in-module
 
 ALBERT_PATH = './albert'
 sys.path.append(ALBERT_PATH)
@@ -176,6 +176,10 @@ elif args.dataset == 'founta':
     FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(args.sequence_length) + '.tfrecords'
     FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(args.sequence_length) + '.tfrecords'
     FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
+elif args.dataset == 'founta-converted':
+    FILE_TRAIN = os.path.join(PATH_DATASET, 'founta', 'conv', 'train-' + str(args.sequence_length) + '.tfrecords')
+    FILE_DEV = os.path.join(PATH_DATASET, 'founta', 'conv', 'dev-' + str(args.sequence_length) + '.tfrecords')
+    FILE_TEST = os.path.join(PATH_DATASET, 'founta', 'conv', 'test-' + str(args.sequence_length) + '.tfrecords')
 else:
     #FILE_TRAIN = PATH_DATASET + os.sep + 'olid-2020-full-'+ ("reg-" if args.regression else "") + str(args.sequence_length) + '.tfrecords'
     #FILE_DEV = PATH_DATASET + os.sep + 'olid-2019-full-' + str(args.sequence_length) + '.tfrecords'
@@ -234,7 +238,7 @@ def train_input_fn(batch_size, folds=1, evaluate_on=-1):
     if args.use_resampling:
         tf.logging.info("Resampling dataset with oversampling and undersampling")
         ds = ds.flat_map(
-            lambda x: tf.data.Dataset.from_tensors(x).repeat(oversample_classes(x))
+            lambda x: tf.data.Dataset.from_tensors(x).repeat(utils.oversample_classes(x, args.dataset))
         )
         #ds = ds.filter(undersampling_filter)
     
@@ -498,43 +502,10 @@ def get_metrics(y_true, y_pred, target_names=target_names[args.dataset]):
 
 
 # sampling parameters use it wisely 
-oversampling_coef = 0.9 # if equal to 0 then oversample_classes() always returns 1
+
 undersampling_coef = 0.9 # if equal to 0 then undersampling_filter() always returns True
 
-def oversample_classes(example):
-    """
-    Returns the number of copies of given example
-    """
-    label_id = example['label_ids']
-    # Fn returning negative class probability
-    #def f1(i): return tf.constant(class_probabilities[args.dataset][i])
-    #def f2(): return tf.cond(tf.math.equal(label_id, tf.constant(1)), lambda: f1(1), lambda: f1(2))
 
-    #class_prob = tf.cond(tf.math.equal(label_id, tf.constant(0)), lambda: f1(0), f2)
-    class_prob = tf.gather(class_probabilities[args.dataset], label_id)
-    class_target_prob = tf.constant(1/num_labels[args.dataset])
-    #class_target_prob = example['class_target_prob']
-    prob_ratio = tf.cast(class_target_prob/class_prob, dtype=tf.float32)
-    # soften ratio is oversampling_coef==0 we recover original distribution
-    prob_ratio = prob_ratio ** oversampling_coef 
-    # for classes with probability higher than class_target_prob we
-    # want to return 1
-    prob_ratio = tf.maximum(prob_ratio, 1) 
-    # for low probability classes this number will be very large
-    repeat_count = tf.floor(prob_ratio)
-    # prob_ratio can be e.g 1.9 which means that there is still 90%
-    # of change that we should return 2 instead of 1
-    repeat_residual = prob_ratio - repeat_count # a number between 0-1
-    residual_acceptance = tf.less_equal(
-                        tf.random_uniform([], dtype=tf.float32), repeat_residual
-    )
-
-    residual_acceptance = tf.cast(residual_acceptance, tf.int64)
-    repeat_count = tf.cast(repeat_count, dtype=tf.int64)
-
-    tf.logging.info("Oversampling label with repeat count: " + str(repeat_count + residual_acceptance))
-
-    return repeat_count + residual_acceptance
 
 
 def undersampling_filter(example):
@@ -780,7 +751,8 @@ if __name__ == "__main__":
             else:
                 early_stopping = tf.estimator.experimental.stop_if_no_decrease_hook(classifier, metric_name="eval_loss", max_steps_without_decrease=1000, min_steps=1000)
 
-
+                if args.dataset == 'founta':
+                    ITERATIONS = math.roof(train_ds_lengths['founta-upsampled'] * 4 / 32)
 
                 train_spec = tf.estimator.TrainSpec(input_fn=lambda: train_input_fn(args.batch_size), max_steps=ITERATIONS, hooks=[wandb.tensorflow.WandbHook(steps_per_log=500), early_stopping])
                 eval_spec = tf.estimator.EvalSpec(input_fn=lambda:eval_input_fn(args.batch_size), steps=None)
