@@ -149,7 +149,7 @@ config = wandb.config
 using_epochs = args.epochs != -1
 
 if using_epochs:
-    ds_tmp = args.dataset + '-upsampled' if args.using_resampling else args.dataset
+    ds_tmp = args.dataset + '-upsampled' if args.use_resampling else args.dataset
     if ds_tmp not in train_ds_lengths:
         tf.logging.warning("Dataset length should be put in constants if using epochs to not having to iterate through dataset to count examples.\n \
             If using upsampling, add ``-upsampled`` to dataset name in train_ds_lengths. i.e. ``founta-upsampled`` for ``founta``")
@@ -235,8 +235,8 @@ def train_input_fn(batch_size, folds=1, evaluate_on=-1):
     do_kfold = folds > 1 and evaluate_on > -1
     tf.logging.info('Using TRAIN dataset: {}'.format(FILE_TRAIN))
     ds = tf.data.TFRecordDataset(FILE_TRAIN)
-    ds_eval = tf.data.TFRecordDataset(FILE_DEV)
-    ds = ds.concatenate(ds_eval)
+    #ds_eval = tf.data.TFRecordDataset(FILE_DEV)
+    #ds = ds.concatenate(ds_eval)
     
     if do_kfold:
         ds_eval = tf.data.TFRecordDataset(FILE_DEV)
@@ -249,7 +249,7 @@ def train_input_fn(batch_size, folds=1, evaluate_on=-1):
         ds = ds.flat_map(
             lambda x: tf.data.Dataset.from_tensors(x).repeat(utils.oversample_classes(x, args.dataset))
         )
-        #ds = ds.filter(utils.undersampling_filter)
+        #ds = ds.filter(lambda x: utils.undersampling_filter(x, args.dataset))
     
     ds = ds.shuffle(2048).repeat().batch(batch_size, drop_remainder=False)
     return ds
@@ -509,7 +509,7 @@ def get_metrics(y_true, y_pred, target_names=target_names[args.dataset]):
 
 
 
-def log_prediction_on_test(classifier):
+def log_prediction_on_test(classifier, convert=False):
     sp = get_sentence_piece_processor()
     table = wandb.Table(columns=["Tweet", "Predicted Label", "True Label"])
     gold_labels = []
@@ -519,6 +519,9 @@ def log_prediction_on_test(classifier):
         gold = pred['gold']
         gold_labels.append(gold)
         prediction = pred['predictions']
+        mapping = {0:1,1:0,2:2,3:2}
+        if convert:
+            prediction = mapping[prediction]
         predictions.append(prediction)
         text = ''.join([sp.IdToPiece(id) for id in input_ids.tolist()]).replace('▁', ' ')
         text = re.sub(r'(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
@@ -724,8 +727,8 @@ if __name__ == "__main__":
                 )
 
             if args.test:
-                classifier.evaluate(input_fn=lambda:eval_input_fn(args.batch_size, test=True), steps=None)
-                log_prediction_on_test(classifier)
+                #classifier.evaluate(input_fn=lambda:eval_input_fn(args.batch_size, test=True), steps=None)
+                log_prediction_on_test(classifier, convert=True)
             elif args.predict:
                 log_prediction_on_dev(classifier)
             else:
