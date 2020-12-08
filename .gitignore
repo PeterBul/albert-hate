@@ -13,4 +13,5 @@ wandb/
 albert_base_v2.tar.gz
 albert_hate_v2
 tmp.py
+/tmp
 __pycache__/

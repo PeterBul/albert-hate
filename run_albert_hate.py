@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+from numpy.lib.npyio import save
 
 import tensorflow as tf
 import sys
@@ -12,6 +13,7 @@ import json
 import numpy as np
 import pandas as pd
 import six
+import pickle
 import time
 import copy
 import math
@@ -20,10 +22,13 @@ import sentencepiece as spm
 import re
 import utils                                                                    #pylint: disable=import-error
 import metrics
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, f1_score
 from sklearn.metrics import confusion_matrix
 from constants import target_names, class_probabilities, num_labels, train_ds_lengths             #pylint: disable=no-name-in-module
 from inspect_datasets import count_examples
+from print_metrics import flatten_classification_report, get_classification_report
+from args import parser
+from paths import SOLID_CONVERTED, OLID_CONVERTED, SOLID_CONVERTED_TEST
 
 ALBERT_PATH = './albert'
 sys.path.append(ALBERT_PATH)
@@ -32,45 +37,6 @@ import optimization                                                             
 import modeling                                                                 #pylint: disable=import-error
 import classifier_utils                                                         #pylint: disable=import-error
 from gradient_accumulation import GradientAccumulationHook                      #pylint: disable=import-error
-
-parser = argparse.ArgumentParser()
-
-
-# Parameters
-parser.add_argument('--albert_dropout', type=float, default=0)
-parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
-parser.add_argument('--iterations', type=int, default=1000, help='Number of iterations to train for. If epochs is set, this is overridden.')
-parser.add_argument('--linear_layers', type=int, default=0, help="Number of linear layers to add on top of ALBERT")
-parser.add_argument('--learning_rate', type=float, default=1e-5, help='Learning rate')
-parser.add_argument('--model_size', type=str, default='base', help='The model size of albert. For now, "base" and "large" is supported.')
-parser.add_argument('--optimizer', type=str, default='adamw', help='The optimizer to use. Supported optimizers are adam, adamw and lamb')
-parser.add_argument('--use_seq_out', type=utils.str2bool, const=True, default=False, nargs='?', help='Set flag to use sequence output instead of first token')
-parser.add_argument('--warmup_steps', type=int, default=0, help='Number of warmupsteps to be used.')
-
-parser.add_argument('--sequence_length', type=int, default=128, help='The max sequence length of the model. This requires a dataset that is modeled for this.')
-parser.add_argument('--regression', type=utils.str2bool, const=True, default=False, nargs='?', help='True if using regression data for training')
-parser.add_argument('--accumulation_steps', type=int, default=1, help='Set number of steps to accumulate for before doing update to parameters')
-parser.add_argument('--no_resampling', dest='use_resampling', default=True, action='store_false')
-parser.add_argument('--num_labels', default=None)
-
-# Control arguments
-parser.add_argument('--config_path', type=str, default=None, help="Path to model config for albert hate")
-parser.add_argument('--init_checkpoint', type=str, default=None, help="Checkpoint to train from")
-parser.add_argument('--wandb_run_path', type=str, default=None)
-parser.add_argument('--model_dir', type=str, help='The name of the folder to save the model')
-parser.add_argument('--predict', type=utils.str2bool, const=True, default=False, nargs='?')
-parser.add_argument('--debug', type=utils.str2bool, const=True, default=False, nargs='?', help='Set flag to debug')
-parser.add_argument('--test', type=utils.str2bool, const=True, default=False, nargs='?', help='Set flag to test')
-parser.add_argument('--dataset', type=str, default='solid', help='The name of the dataset to be used. For now,  davidson or solid')
-parser.add_argument('--task', type=str, default='a', help='Task a, b or c for solid/olid dataset')
-parser.add_argument('--tree_predict', type=utils.str2bool, const=True, default=False, nargs='?')
-parser.add_argument('--ensamble', type=utils.str2bool, const=True, default=False, nargs='?')
-parser.add_argument('--dry_run', type=utils.str2bool, const=True, default=False, nargs='?')
-parser.add_argument('--do_eval', type=utils.str2bool, const=True, default=False, nargs='?')
-
-# Arguments that aren't very important
-parser.add_argument('--epochs', type=int, default=-1, help='Number of epochs to train. If not set, iterations are used instead.')
-parser.add_argument('--dataset_length', type=int, default=-1, help='Length of dataset. Is needed to caluclate iterations if epochs is used.')
 
 args = parser.parse_args()
 
@@ -86,16 +52,17 @@ class AlbertHateConfig(object):
                     linear_layers=0,
                     model_dir=None,
                     model_size='base',
-                    num_labels=num_labels[args.dataset],
+                    n_labels=3,
                     regression=False,
                     sequence_length=128,
                     use_seq_out=True,
-                    best_checkpoint=None
+                    best_checkpoint=None,
+                    args=None
                     ):
         self.linear_layers = linear_layers
         self.model_dir = model_dir
         self.model_size = model_size
-        self.num_labels = num_labels
+        self.num_labels = num_labels[args.dataset] if args else n_labels
         self.regression = utils.str2bool(regression)
         self.sequence_length = sequence_length
         self.use_seq_out = utils.str2bool(use_seq_out)
@@ -128,6 +95,7 @@ class AlbertHateConfig(object):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
 
+
 print(args.__dict__)
 
 if args.config_path:
@@ -154,6 +122,7 @@ if using_epochs:
         tf.logging.warning("Dataset length should be put in constants if using epochs to not having to iterate through dataset to count examples.\n \
             If using upsampling, add ``-upsampled`` to dataset name in train_ds_lengths. i.e. ``founta-upsampled`` for ``founta``")
         ds_length = count_examples(args.dataset, args.use_resampling, False)
+        tf.logging.info("Dataset length is {}".format(ds_length))
     else:
         ds_length = train_ds_lengths[ds_tmp]
 
@@ -169,26 +138,30 @@ else:
 DIR = os.path.dirname(__file__)
 PATH_DATASET= 'data' + os.sep + 'tfrecords'
 
-if args.dataset == 'davidson':
-    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(128) + '.tfrecords'
-    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(128) + '.tfrecords'
-    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test' + os.sep + 'test-' + str(128) + '.tfrecords'
+if args.dataset in ('davidson', 'converted', 'founta'):
+    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(args.sequence_length) + '.tfrecords'
+    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(args.sequence_length) + '.tfrecords'
+    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
 elif args.dataset in ('solid_a', 'solid_b', 'solid_c'):
     FILE_TRAIN = PATH_DATASET + os.sep + 'solid' + os.sep + 'task-' + args.task + os.sep + 'solid-' + str(args.sequence_length) + '.tfrecords'
     FILE_DEV = PATH_DATASET + os.sep + 'olid' + os.sep + 'task-' + args.task + os.sep + 'olid-' + str(args.sequence_length) + '.tfrecords'
     FILE_TEST = PATH_DATASET + os.sep + 'solid' + os.sep + 'task-' + args.task + os.sep + 'test' + os.sep + 'solid-' + str(args.sequence_length) + '.tfrecords'
-elif args.dataset =='converted':
-    FILE_TRAIN = PATH_DATASET + os.sep + 'converted' + os.sep + 'solid-' + str(args.sequence_length) + '.tfrecords'
-    FILE_DEV = PATH_DATASET + os.sep + 'converted' + os.sep + 'olid-' + str(args.sequence_length) + '.tfrecords'
-    FILE_TEST = PATH_DATASET + os.sep + 'converted' + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
-elif args.dataset == 'founta':
-    FILE_TRAIN = PATH_DATASET + os.sep + args.dataset + os.sep + 'train-' + str(args.sequence_length) + '.tfrecords'
-    FILE_DEV = PATH_DATASET + os.sep + args.dataset + os.sep + 'dev-' + str(args.sequence_length) + '.tfrecords'
-    FILE_TEST = PATH_DATASET + os.sep + args.dataset + os.sep + 'test-' + str(args.sequence_length) + '.tfrecords'
 elif args.dataset == 'founta-converted':
     FILE_TRAIN = os.path.join(PATH_DATASET, 'founta', 'conv', 'train-' + str(args.sequence_length) + '.tfrecords')
     FILE_DEV = os.path.join(PATH_DATASET, 'founta', 'conv', 'dev-' + str(args.sequence_length) + '.tfrecords')
     FILE_TEST = os.path.join(PATH_DATASET, 'founta', 'conv', 'test-' + str(args.sequence_length) + '.tfrecords')
+elif args.dataset == 'founta/isaksen':
+    FILE_TRAIN = os.path.join(PATH_DATASET, 'founta', 'isaksen', 'train-' + str(args.sequence_length) + '.tfrecords')
+    FILE_DEV = os.path.join(PATH_DATASET, 'founta', 'isaksen', 'dev-' + str(args.sequence_length) + '.tfrecords')
+    FILE_TEST = os.path.join(PATH_DATASET, 'founta', 'isaksen', 'test-' + str(args.sequence_length) + '.tfrecords')
+elif args.dataset == 'founta/isaksen/spam':
+    FILE_TRAIN = os.path.join(PATH_DATASET, 'founta', 'isaksen', 'spam', 'train-' + str(args.sequence_length) + '.tfrecords')
+    FILE_DEV = os.path.join(PATH_DATASET, 'founta', 'isaksen', 'spam', 'dev-' + str(args.sequence_length) + '.tfrecords')
+    FILE_TEST = os.path.join(PATH_DATASET, 'founta', 'isaksen', 'spam', 'test-' + str(args.sequence_length) + '.tfrecords')
+elif args.dataset == 'combined':
+    FILE_TRAIN = os.path.join(PATH_DATASET, 'combined', 'train-' + str(args.sequence_length) + '.tfrecords')
+    FILE_DEV = None
+    FILE_TEST = os.path.join(PATH_DATASET, 'combined', 'test-' + str(args.sequence_length) + '.tfrecords')
 else:
     #FILE_TRAIN = PATH_DATASET + os.sep + 'olid-2020-full-'+ ("reg-" if args.regression else "") + str(args.sequence_length) + '.tfrecords'
     #FILE_DEV = PATH_DATASET + os.sep + 'olid-2019-full-' + str(args.sequence_length) + '.tfrecords'
@@ -233,10 +206,15 @@ def k_fold_eval(ds, folds, evaluate_on):
 
 def train_input_fn(batch_size, folds=1, evaluate_on=-1):
     do_kfold = folds > 1 and evaluate_on > -1
-    tf.logging.info('Using TRAIN dataset: {}'.format(FILE_TRAIN))
-    ds = tf.data.TFRecordDataset(FILE_TRAIN)
-    #ds_eval = tf.data.TFRecordDataset(FILE_DEV)
-    #ds = ds.concatenate(ds_eval)
+    if args.dataset == 'converted':
+        train_set = FILE_DEV
+    else:
+        train_set = FILE_TRAIN
+    tf.logging.info('Using TRAIN dataset: {}'.format(train_set))
+    ds = tf.data.TFRecordDataset(train_set)
+    if not args.do_eval and FILE_DEV and args.dataset not in ('combined', 'converted'):
+        ds_eval = tf.data.TFRecordDataset(FILE_DEV)
+        ds = ds.concatenate(ds_eval)
     
     if do_kfold:
         ds_eval = tf.data.TFRecordDataset(FILE_DEV)
@@ -254,7 +232,7 @@ def train_input_fn(batch_size, folds=1, evaluate_on=-1):
     ds = ds.shuffle(2048).repeat().batch(batch_size, drop_remainder=False)
     return ds
 
-def eval_input_fn(batch_size, test=False, folds=1, evaluate_on=-1):
+def eval_input_fn(batch_size, test=False, folds=1, evaluate_on=-1, test_set=None, seq_length=None):
     do_kfold = folds > 1 and evaluate_on > -1
     if do_kfold:
         tf.logging.info('Using TRAIN dataset with k-fold with train set: {} on fold: {}'.format(FILE_TRAIN, evaluate_on))
@@ -266,12 +244,34 @@ def eval_input_fn(batch_size, test=False, folds=1, evaluate_on=-1):
         tf.logging.info('Using DEV dataset: {}'.format(FILE_DEV))
         ds = tf.data.TFRecordDataset(FILE_DEV)
     else:
-        tf.logging.info('Using TEST dataset: {}'.format(FILE_TEST))
-        ds = tf.data.TFRecordDataset(FILE_TEST)
+        if not test_set:
+            test_set = FILE_TEST
+        tf.logging.info('Using TEST dataset: {}'.format(test_set))
+        ds = tf.data.TFRecordDataset(test_set)
     assert batch_size is not None, "batch_size must not be None"
+    seq_length = seq_length if seq_length else args.sequence_length
+    ds = ds.map(utils.read_tfrecord_builder(is_training=False, seq_length=seq_length))
+    ds = ds.batch(batch_size)
+    return ds
+
+def cross_validation_input_fn(batch_size, fold, folds=10, test=False):
+    if test:
+        olid_train = tf.data.TFRecordDataset(OLID_CONVERTED)
+        solid_test = tf.data.TFRecordDataset(SOLID_CONVERTED_TEST)
+        ds = olid_train.concatenate(solid_test)
+        del olid_train, solid_test
+        ds = ds.shard(folds, fold)
+    else:
+        ds = tf.data.TFRecordDataset(SOLID_CONVERTED)
+        ds = ds.shard(folds, fold)
+        ds = ds.shuffle(42)
+    
     ds = ds.map(utils.read_tfrecord_builder(is_training=False, seq_length=args.sequence_length))
     ds = ds.batch(batch_size)
     return ds
+
+        
+
 
 def tf_count(t, val):
     elements_equal_to_value = tf.equal(t, val)
@@ -290,7 +290,7 @@ def model_fn_builder(config=None):
         albert_pretrained_path = 'albert_' + params.model_size
 
         albert_config = modeling.AlbertConfig.from_json_file(albert_pretrained_path + os.sep + 'albert_config.json')
-        if args.albert_dropout is not None:
+        if mode == tf.estimator.ModeKeys.TRAIN and args.albert_dropout is not None:
             albert_config.hidden_dropout_prob = args.albert_dropout
         #albert_config.attention_probs_dropout_prob = args.dropout
 
@@ -526,10 +526,38 @@ def log_prediction_on_test(classifier, convert=False):
         text = ''.join([sp.IdToPiece(id) for id in input_ids.tolist()]).replace('▁', ' ')
         text = re.sub(r'(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
         table.add_data(text, prediction, gold)
+    cr = get_classification_report(gold_labels, predictions, target_names=target_names[args.dataset])
     
-    print(classification_report(gold_labels, predictions, target_names=target_names[args.dataset], digits=8))
+    cr_file = os.path.join(model_dir, 'classification_report.pkl')
+    pred_file = os.path.join(model_dir, 'predictions.pkl')
+
+    with open(cr_file, 'wb') as handle:
+        pickle.dump(cr, handle)
+    
+    with open(pred_file, 'wb') as handle:
+        pickle.dump(predictions, handle)
+
+    print(cr)
     print(confusion_matrix(gold_labels, predictions))
     wandb.log({"Predictions Test": table})
+
+
+def get_predictions(classifier, input_fn):
+    gold_labels = []
+    predictions = []
+    texts = []
+    sp = get_sentence_piece_processor()
+    for pred in classifier.predict(input_fn=input_fn):
+        input_ids = pred['input_ids']
+        gold = pred['gold']
+        gold_labels.append(gold)
+        prediction = pred['predictions']
+        predictions.append(prediction)
+        text = ''.join([sp.IdToPiece(id) for id in input_ids.tolist()]).replace('▁', ' ')
+        text = re.sub(r'(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
+        texts.append(text)
+    
+    return texts, gold_labels, predictions
 
 def log_prediction_on_dev(classifier):
     sp = get_sentence_piece_processor()
@@ -545,7 +573,8 @@ def log_prediction_on_dev(classifier):
         text = ''.join([sp.IdToPiece(id) for id in input_ids.tolist()]).replace('▁', ' ')
         text = re.sub(r'(<pad>)*$|(\[SEP\])|^(\[CLS\])', '', text)
         table.add_data(text, prediction, gold)
-    print(classification_report(gold_labels, predictions, target_names=target_names[args.dataset], digits=8))
+    cr = get_classification_report(gold_labels, predictions, target_names=target_names[args.dataset])
+    print(cr)
     print(confusion_matrix(gold_labels, predictions))
     wandb.log({"Predictions Dev": table})
 
@@ -683,39 +712,95 @@ def run_ensamble():
     log_predictions(input_ids, final_pred, gold, np.sum(probabilities, axis=0)/len(configs), 'Mean')
 
 
-if __name__ == "__main__":
+def run_cross_validation(fold):
+    model_config = get_model_config()
+    strategy = tf.distribute.MirroredStrategy()
+    config = tf.estimator.RunConfig(train_distribute=strategy, save_checkpoints_steps=500)
+    classifier = tf.estimator.Estimator(
+                model_fn=model_fn_builder(model_config),
+                model_dir=os.path.abspath(model_dir),
+                config=config
+                )
+    classifier.train(input_fn=lambda: cross_validation_input_fn(args.batch_size, fold),
+                                        hooks=[wandb.tensorflow.WandbHook(steps_per_log=500)])
     
+    texts, gold_labels, predictions = get_predictions(classifier, input_fn=lambda: cross_validation_input_fn(args.batch_size, fold, test=True))
+    
+    save_pickle(texts, os.path.join(model_dir, 'texts.pkl'))
+    save_pickle(gold_labels, os.path.join(model_dir, 'gold.pkl'))
+    save_pickle(predictions, os.path.join(model_dir, 'preds.pkl'))
+
+    cr = get_classification_report(gold_labels, predictions, target_names=['hate', 'off','none'])
+    print(cr)
+
+    f1_micro = f1_score(gold_labels, predictions, average='micro')
+    f1_macro = f1_score(gold_labels, predictions, average='macro')
+    f1_weighted = f1_score(gold_labels, predictions, average='weighted')
+
+    return f1_micro, f1_macro, f1_weighted
+
+def save_pickle(object, name):
+    with open(name, 'wb') as handle:
+        pickle.dump(object, handle)
+
+
+def save_model_config(model_config=None):
+    if model_config is None:
+        model_config = AlbertHateConfig(linear_layers=args.linear_layers, 
+                                            model_dir=model_dir,
+                                            model_size=args.model_size,
+                                            n_labels=args.num_labels,
+                                            regression=args.regression,
+                                            sequence_length=args.sequence_length,
+                                            use_seq_out=args.use_seq_out)
+    else:
+        model_config.model_dir = model_dir
+    
+    config_file = os.path.join(model_dir, 'model_config.json')
+    
+    with tf.gfile.GFile(config_file, "w") as writer:
+        writer.write(model_config.to_json_string())
+
+def get_model_config():
+    if args.wandb_run_path:
+        tf.logging.info("Using WandB run path: {}".format(args.wandb_run_path))
+        model_conf_path = wandb.restore('model_config.json', run_path=args.wandb_run_path)
+        return AlbertHateConfig.from_json_file(model_conf_path.name)    
+    elif args.config_path:
+        return AlbertHateConfig.from_json_file(args.config_path)
+    else:
+        return None
+
+def get_warm_start_settings(model_config):
+    if args.wandb_run_path and model_config:
+        return tf.estimator.WarmStartSettings(ckpt_to_initialize_from=model_config.model_dir, vars_to_warm_start='.*')
+    elif args.config_path and model_config:
+        return tf.estimator.WarmStartSettings(ckpt_to_initialize_from=model_config.model_dir, vars_to_warm_start='.*')
+    elif args.init_checkpoint:
+        return tf.estimator.WarmStartSettings(ckpt_to_initialize_from=args.init_checkpoint, vars_to_warm_start='.*')
+    else:
+        return None
+
+def confirm_model_dir(model_dir, model_config):
+    if args.test and model_config:
+        return model_config.model_dir
+    else:
+        return model_dir
+
+def main():
+    tf.debugging.set_log_device_placement(True)
     with tf.control_dependencies(ctrl_dependencies):
-        if args.dry_run:
-            print("Hello World!")
-        elif args.tree_predict:
+        if args.tree_predict:
             predict_tree()
         elif args.ensamble:
             run_ensamble()
         else:
-            tf.debugging.set_log_device_placement(True)
             strategy = tf.distribute.MirroredStrategy()
             config = tf.estimator.RunConfig(train_distribute=strategy, save_checkpoints_steps=500)
 
-            if args.wandb_run_path:
-                tf.logging.info("Using WandB run path: {}".format(args.wandb_run_path))
-                model_config = wandb.restore('model_config.json', run_path=args.wandb_run_path)
-                model_config = AlbertHateConfig.from_json_file(model_config.name)
-                ws = tf.estimator.WarmStartSettings(ckpt_to_initialize_from=model_config.model_dir, vars_to_warm_start='.*')
-                if args.test:
-                    model_dir = model_config.model_dir
-                    tf.logging.info("Using model_dir from model_config: {}".format(model_dir))
-            elif args.config_path:
-                model_config = AlbertHateConfig.from_json_file(args.config_path)
-                ws = tf.estimator.WarmStartSettings(ckpt_to_initialize_from=model_config.model_dir, vars_to_warm_start='.*')
-                if args.test:
-                    model_dir = model_config.model_dir
-            elif args.init_checkpoint:
-                ws = tf.estimator.WarmStartSettings(ckpt_to_initialize_from=args.init_checkpoint, vars_to_warm_start='.*')
-                model_config = None
-            else:
-                ws = None
-                model_config = None
+            model_config = get_model_config()
+            ws = get_warm_start_settings(model_config)
+            model_dir = confirm_model_dir(model_dir, model_config)
                 
 
 
@@ -728,7 +813,7 @@ if __name__ == "__main__":
 
             if args.test:
                 #classifier.evaluate(input_fn=lambda:eval_input_fn(args.batch_size, test=True), steps=None)
-                log_prediction_on_test(classifier, convert=True)
+                log_prediction_on_test(classifier, convert=False)
             elif args.predict:
                 log_prediction_on_dev(classifier)
             else:
@@ -746,22 +831,13 @@ if __name__ == "__main__":
 
                 log_prediction_on_test(classifier)
 
-                if model_config is None:
-                    model_config = AlbertHateConfig(linear_layers=args.linear_layers, 
-                                                model_dir=model_dir,
-                                                model_size=args.model_size,
-                                                num_labels=args.num_labels,
-                                                regression=args.regression,
-                                                sequence_length=args.sequence_length,
-                                                use_seq_out=args.use_seq_out)
-                else:
-                    model_config.model_dir = model_dir
-                
-                config_file = os.path.join(model_dir, 'model_config.json')
-                
-                with tf.gfile.GFile(config_file, "w") as writer:
-                    writer.write(model_config.to_json_string())
+                save_model_config(model_config)
 
+
+
+if __name__ == "__main__":
+    main()
+    
 
             
 

@@ -100,6 +100,12 @@ def oversample_classes(example, dataset, oversampling_coef=0.9):
 
   return repeat_count + residual_acceptance
 
+def deterministic_oversampling(example):
+  label_id = example['label_ids']
+  if label_id == 0:
+    return 4
+  return 1
+
 
 
 def undersampling_filter(example, dataset, undersampling_coef=0.9):

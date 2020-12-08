@@ -19,6 +19,10 @@ def count_labels(dataset_name, use_oversampling, use_undersampling):
       pass
 
   count = np.asarray(count)
+  print(count)
+  print(count.sum())
+  count = count/count.sum()
+  
 
   return count
 
@@ -46,7 +50,7 @@ def count_examples(dataset_name, use_oversampling, use_undersampling, use_cpu=Fa
   return count
 
 def load_iterator(dataset_name, use_oversampling, use_undersampling):
-  tfrecord = os.path.join('data', 'tfrecords', dataset_name, 'train-128.tfrecords')
+  tfrecord = os.path.join('data', 'tfrecords', dataset_name, 'dev-128.tfrecords' if dataset_name == 'converted' else 'train-128.tfrecords')
   dataset = tf.data.TFRecordDataset(tfrecord)
   dataset = dataset.map(utils.read_tfrecord_builder(is_training=True, seq_length=128, regression=False))
   if use_oversampling:
@@ -65,4 +69,5 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--use_cpu', default=False, action='store_true')
   args = parser.parse_args()
-  print(count_examples('founta', use_oversampling=True, use_undersampling=False, use_cpu=args.use_cpu))
+  print(count_labels('converted', use_oversampling=False, use_undersampling=False))
+  #print(count_examples('con', use_oversampling=True, use_undersampling=False, use_cpu=args.use_cpu))

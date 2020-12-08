@@ -1,9 +1,1 @@
-{
-  "linear_layers": 0,
-  "model_dir": "/lustre1/home/petercbu/Semester-Project/albert-hate/wandb/run-20201019_193344-l1kmxoxv",
-  "model_size": "base",
-  "num_labels": 3,
-  "regression": false,
-  "sequence_length": 128,
-  "use_seq_out": false
-}
+{"linear_layers": 0, "model_dir": "/lustre1/home/petercbu/Semester-Project/albert-hate/wandb/wandb/run-20201112_161630-15wivgk8", "model_size": "xlarge", "num_labels": 3, "regression": false, "sequence_length": 128, "use_seq_out": false}

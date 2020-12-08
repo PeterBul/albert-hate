@@ -498,15 +498,21 @@ class Processor(object):
   
   def get_train_dev_test_examples(self):
     train, dev, test = self.get_train_dev_test_dataframes()
-    return self._create_examples(train), self._create_examples(dev), self._create_examples(test)
+    train_examples = self._create_examples(train) if train is not None else None
+    dev_examples = self._create_examples(dev) if dev is not None else None
+    test_examples = self._create_examples(test) if test is not None else None
+    return train_examples, dev_examples, test_examples
 
   def create_tfrecords(self, sequence_length, tokenizer=None):
     if tokenizer is None:
       tokenizer = TweetSpTokenizer()
     train, dev, test = self.get_train_dev_test_examples()
-    self._create_tfrecord(train, 'train', sequence_length, tokenizer)
-    self._create_tfrecord(dev, 'dev', sequence_length, tokenizer)
-    self._create_tfrecord(test, 'test', sequence_length, tokenizer)
+    if train:
+      self._create_tfrecord(train, 'train', sequence_length, tokenizer)
+    if dev:
+      self._create_tfrecord(dev, 'dev', sequence_length, tokenizer)
+    if test:
+      self._create_tfrecord(test, 'test', sequence_length, tokenizer)
 
   def _create_output_folder(self, data_dir):
     self.output_folder = os.path.join(data_dir, 'tfrecords/{}'.format(self.dataset_name))
@@ -740,12 +746,51 @@ class FountaConvProcessor(Processor):
     test = pd.read_csv(os.path.join(converted_founta, 'test.tsv'), sep='\t')
     return train, dev, test
   
+class FountaIsaksenProcessor(Processor):
+  def __init__(self, data_dir, do_lower_case=True, dev_fraction=0.2, test_fraction=0.2, random_state=42, keep_df=False):
+    super().__init__(os.path.join('founta', 'isaksen', 'spam'), data_dir, do_lower_case, dev_fraction, test_fraction, random_state, keep_df)
+
+  def _get_example_from_row(self, row):
+    return FountaExample(row.name, row.text_a, row.label)
+  
+  def _read_df(self):
+    print("Skipping reading df, since we want three dataframes")
+
+  def get_labels(self):
+    return ['hateful','abusive', 'normal', 'spam']
+
+  def get_train_dev_test_dataframes(self):
+    founta_isaksen = '../ernie/data/founta/isaksen/spam/'
+    train = pd.read_csv(os.path.join(founta_isaksen, 'train.tsv'), sep='\t')
+    dev = pd.read_csv(os.path.join(founta_isaksen, 'dev.tsv'), sep='\t')
+    test = pd.read_csv(os.path.join(founta_isaksen, 'test.tsv'), sep='\t')
+    return train, dev, test
+
+class CombinedProcessor(Processor):
+  def __init__(self, data_dir, do_lower_case=True, dev_fraction=0.2, test_fraction=0.2, random_state=42, keep_df=False):
+    super().__init__(os.path.join('combined'), data_dir, do_lower_case, dev_fraction, test_fraction, random_state, keep_df)
+
+  def _get_example_from_row(self, row):
+    return DavidsonExample(row.name, row.text_a, row.label)
+  
+  def _read_df(self):
+    print("Skipping reading df, since we want three dataframes")
+
+  def get_labels(self):
+    return ['HATE', 'OFF', 'NONE']
+
+  def get_train_dev_test_dataframes(self):
+    combined = '../ernie/data/combined2'
+    train = pd.read_csv(os.path.join(combined, 'train.tsv'), sep='\t')
+    test = pd.read_csv(os.path.join(combined, 'test.tsv'), sep='\t')
+    return train, None, test
+  
 
   
 
 def main():
   print("Getting processor")
-  processor = FountaConvProcessor('data')
+  processor = CombinedProcessor('data')
   print("Getting tokenizer")
   tokenizer = FullTokenizer(FullTokenizer.get_sp_model_epic(), strip_handles=False, segment_hashtags=True, demojize=True, remove_url=True, remove_rt=True)
   print("Creating tfrecords")
