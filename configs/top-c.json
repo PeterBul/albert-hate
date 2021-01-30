@@ -1,8 +1,0 @@
-{
-"linear_layers": 1,
-"model_dir": "wandb/run-20201006_030410-s1rxsk87",
-"model_size": "large",
-"num_labels": 3,
-"sequence_length": 128,
-"use_seq_out": false
-}

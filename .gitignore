@@ -3,10 +3,13 @@
 /graphs
 /models
 /albert-model*
+/albert_base
 /albert_*large*
 /estimator-graphs
 /bert_base_uncased
 /master
+/configs
+/test
 /uncased*
 wandb/
 albert_base_v2.tar.gz
