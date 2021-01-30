@@ -261,12 +261,18 @@ def cross_validation_input_fn(batch_size, fold, folds=10, test=False):
         ds = olid_train.concatenate(solid_test)
         del olid_train, solid_test
         ds = ds.shard(folds, fold)
+        ds = ds.map(utils.read_tfrecord_builder(is_training=False, seq_length=args.sequence_length))
     else:
         ds = tf.data.TFRecordDataset(SOLID_CONVERTED)
         ds = ds.shard(folds, fold)
-        ds = ds.shuffle(42)
-    
-    ds = ds.map(utils.read_tfrecord_builder(is_training=False, seq_length=args.sequence_length))
+        tf.random.set_random_seed(42)
+        ds = ds.map(utils.read_tfrecord_builder(is_training=False, seq_length=args.sequence_length))
+        ds = ds.flat_map(
+            lambda x: tf.data.Dataset.from_tensors(x).repeat(utils.deterministic_oversampling(x))
+        )
+        ds = ds.filter(lambda x: utils.deterministic_undersampling_filter(x))
+        ds = ds.shuffle(2048, seed=10)
+
     ds = ds.batch(batch_size)
     return ds
 
@@ -800,7 +806,7 @@ def main():
 
             model_config = get_model_config()
             ws = get_warm_start_settings(model_config)
-            model_dir = confirm_model_dir(model_dir, model_config)
+            model_dir = confirm_model_dir(wandb.run.dir, model_config)
                 
 
 
