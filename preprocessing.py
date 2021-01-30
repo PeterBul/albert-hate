@@ -485,7 +485,9 @@ class Processor(object):
   
 
   def get_train_dev_test_dataframes(self):
-    """Gets a collection for the training, dev and test set"""
+    """Gets a collection for the training, dev and test set
+    returns: three pandas tables: train, dev, and test
+    """ 
     df = self.df if self.keep_df else self._read_df()
     if self.dev_fraction > 0 and self.test_fraction > 0:
       train, dev, test = np.split(df.sample(frac=1, random_state=self.random_state), 
@@ -740,6 +742,9 @@ class FountaConvProcessor(Processor):
     return ['abusive', 'hateful', 'normal', 'spam']
 
   def get_train_dev_test_dataframes(self):
+    """Gets a collection for the training, dev and test set
+    returns: three pandas tables: train, dev, and test
+    """ 
     converted_founta = '../ernie/data/founta/conv/'
     train = pd.read_csv(os.path.join(converted_founta, 'train.tsv'), sep='\t')
     dev = pd.read_csv(os.path.join(converted_founta, 'dev.tsv'), sep='\t')
