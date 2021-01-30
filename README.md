@@ -1,7 +1,18 @@
 # ALBERT Hate
 This is the code for the ALBERT systems used in the Master's Thesis by Peter Cook Bulukin during the autumn/winter 2020/21.
 
-The project was first implemented on top of the official code for ALBERT: https://github.com/google-research/albert, but changes were done inside of their source code, so the implementation of ALBERT is included in the ``albert`` folder. The parameters for ``albert_base`` managed to get uploaded to github, so that can be used directly. If other configurations of ALBERT are to be used, these have to be downloaded separately and added like ``albert_base``. The ``large`` folder would for example be called ``albert_large``.
+The project was first implemented on top of the official code for ALBERT: https://github.com/google-research/albert, but changes were done inside of their source code, so the implementation of ALBERT is included in the ``albert`` folder. Download the parameters for different size versions of ALBERT in folders named ``albert_<model_size>``.
+
+It should look kind of similar to this (for albert base):
+```bash
+├───albert_base
+│       30k-clean.model
+│       30k-clean.vocab
+│       albert_config.json
+│       model.ckpt-best.data-00000-of-00001
+│       model.ckpt-best.index
+│       model.ckpt-best.meta
+```
 
 The project is run using WandB (Weights and Biases): https://wandb.ai/.
 
@@ -15,82 +26,82 @@ The code is run by:
 * The generated tfrecords files should be placed so they can be retrieved by the system. The code is written so that only specific datasets can be used for now, and run with just using the dataset strings. For simplest execution, design the structure so that the dataset you want to run is formatted as: 
 
 ```bash
-data
-└───tfrecords
-    │   dev-olid-128.tfrecords
-    │   dev-olid-512.tfrecords
-    │
-    ├───combined
-    │       test-128.tfrecords
-    │       train-128.tfrecords
-    │
-    ├───converted
-    │       dev-128.tfrecords
-    │       test-128.tfrecords
-    │       train-128.tfrecords
-    │
-    ├───davidson
-    │       dev-128.tfrecords
-    │       dev-70.tfrecords
-    │       test-128.tfrecords
-    │       test-70.tfrecords
-    │       train-128.tfrecords
-    │       train-70.tfrecords
-    │
-    ├───founta
-    │   │   dev-128.tfrecords
-    │   │   test-128.tfrecords
-    │   │   train-128.tfrecords
-    │   │
-    │   ├───conv
-    │   │       dev-128.tfrecords
-    │   │       test-128.tfrecords
-    │   │       train-128.tfrecords
-    │   │
-    │   └───isaksen
-    │       │   dev-128.tfrecords
-    │       │   test-128.tfrecords
-    │       │   train-128.tfrecords
-    │       │
-    │       └───spam
-    │               dev-128.tfrecords
-    │               test-128.tfrecords
-    │               train-128.tfrecords
-    │
-    ├───olid
-    │   │   olid-2019-full-128-bert.tfrecords
-    │   │   olid-2019-full-128.tfrecords
-    │   │
-    │   ├───task-a
-    │   │       olid-128.tfrecords
-    │   │
-    │   ├───task-b
-    │   │       olid-128.tfrecords
-    │   │
-    │   └───task-c
-    │           olid-128.tfrecords
-    │
-    └───solid
-        │   olid-2020-full-128-bert.tfrecords
-        │   olid-2020-full-128.tfrecords
+└───data
+    └───tfrecords
+        │   dev-olid-128.tfrecords
+        │   dev-olid-512.tfrecords
         │
-        ├───task-a
-        │   │   solid-128.tfrecords
+        ├───combined
+        │       test-128.tfrecords
+        │       train-128.tfrecords
+        │
+        ├───converted
+        │       dev-128.tfrecords
+        │       test-128.tfrecords
+        │       train-128.tfrecords
+        │
+        ├───davidson
+        │       dev-128.tfrecords
+        │       dev-70.tfrecords
+        │       test-128.tfrecords
+        │       test-70.tfrecords
+        │       train-128.tfrecords
+        │       train-70.tfrecords
+        │
+        ├───founta
+        │   │   dev-128.tfrecords
+        │   │   test-128.tfrecords
+        │   │   train-128.tfrecords
         │   │
-        │   └───test
-        │           solid-128.tfrecords
-        │
-        ├───task-b
-        │   │   solid-128.tfrecords
+        │   ├───conv
+        │   │       dev-128.tfrecords
+        │   │       test-128.tfrecords
+        │   │       train-128.tfrecords
         │   │
-        │   └───test
-        │           solid-128.tfrecords
+        │   └───isaksen
+        │       │   dev-128.tfrecords
+        │       │   test-128.tfrecords
+        │       │   train-128.tfrecords
+        │       │
+        │       └───spam
+        │               dev-128.tfrecords
+        │               test-128.tfrecords
+        │               train-128.tfrecords
         │
-        └───task-c
-            │   solid-128.tfrecords
+        ├───olid
+        │   │   olid-2019-full-128-bert.tfrecords
+        │   │   olid-2019-full-128.tfrecords
+        │   │
+        │   ├───task-a
+        │   │       olid-128.tfrecords
+        │   │
+        │   ├───task-b
+        │   │       olid-128.tfrecords
+        │   │
+        │   └───task-c
+        │           olid-128.tfrecords
+        │
+        └───solid
+            │   olid-2020-full-128-bert.tfrecords
+            │   olid-2020-full-128.tfrecords
             │
-            └───test
-                    solid-128.tfrecords
+            ├───task-a
+            │   │   solid-128.tfrecords
+            │   │
+            │   └───test
+            │           solid-128.tfrecords
+            │
+            ├───task-b
+            │   │   solid-128.tfrecords
+            │   │
+            │   └───test
+            │           solid-128.tfrecords
+            │
+            └───task-c
+                │   solid-128.tfrecords
+                │
+                └───test
+                        solid-128.tfrecords
 ```
 This would make it possible to run ``combined, converted, davidson, founta, olid, and solid``.
 
