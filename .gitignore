@@ -16,3 +16,7 @@ tmp.py
 /tmp
 __pycache__/
 /out
+*.json
+*.pickle
+save_config.py
+save_old_config.py
