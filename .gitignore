@@ -4,7 +4,6 @@
 /models
 /albert-model*
 /albert_*large*
-/tf-hub
 /estimator-graphs
 /bert_base_uncased
 /master

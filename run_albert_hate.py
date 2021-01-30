@@ -163,9 +163,6 @@ elif args.dataset == 'combined':
     FILE_DEV = None
     FILE_TEST = os.path.join(PATH_DATASET, 'combined', 'test-' + str(args.sequence_length) + '.tfrecords')
 else:
-    #FILE_TRAIN = PATH_DATASET + os.sep + 'olid-2020-full-'+ ("reg-" if args.regression else "") + str(args.sequence_length) + '.tfrecords'
-    #FILE_DEV = PATH_DATASET + os.sep + 'olid-2019-full-' + str(args.sequence_length) + '.tfrecords'
-    #FILE_TEST = PATH_DATASET + os.sep + 'test-2020-' + str(args.sequence_length) + '.tfrecords'
     raise ValueError("Dataset not supported")
 
 
@@ -834,8 +831,6 @@ def main():
                     classifier.train(input_fn=lambda: train_input_fn(args.batch_size),
                                         hooks=[wandb.tensorflow.WandbHook(steps_per_log=500)],
                                         max_steps=ITERATIONS)
-
-                log_prediction_on_test(classifier)
 
                 save_model_config(model_config)
 
