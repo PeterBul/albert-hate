@@ -4,8 +4,10 @@ from __future__ import print_function
 
 import tensorflow.compat.v1 as tf   #pylint: disable=import-error
 import os
+import sys
 import sentencepiece as spm
 from constants import class_probabilities, num_labels
+
 
 def read_tfrecord_builder(is_training, seq_length, regression=False):
     def read_tfrecord(serialized_example):
@@ -100,11 +102,28 @@ def oversample_classes(example, dataset, oversampling_coef=0.9):
 
   return repeat_count + residual_acceptance
 
-def deterministic_oversampling(example):
-  label_id = example['label_ids']
-  if label_id == 0:
-    return 4
-  return 1
+def deterministic_oversampling(example, ernie=False):
+  if ernie:
+    label_id = example
+  else:
+    label_id = example['label_ids']
+  result = tf.cond(tf.equal(label_id, tf.constant(0)), lambda: tf.constant(5, dtype=tf.int64), lambda: tf.constant(1, tf.int64))
+  return result
+
+def deterministic_undersampling_filter(example, ernie=False):
+  if ernie:
+    label_id = example[1]
+  else:
+    label_id = example['label_ids']
+  
+  hateful = tf.equal(label_id, tf.constant(0))
+  offensive = tf.equal(label_id, tf.constant(1))
+  neither = tf.equal(label_id, tf.constant(2))
+  tf.random.set_random_seed(42)
+  acceptance = tf.less_equal(tf.random_uniform([], dtype=tf.float32, seed=10), tf.constant(0.04))
+  not_neither = tf.not_equal(label_id, tf.constant(2))
+  return tf.logical_or(not_neither, acceptance)
+  
 
 
 
